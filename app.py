@@ -604,7 +604,7 @@ def active_image_name() -> str:
 def css_for_streamlit() -> str:
     return """
     <style>
-    .stApp { background: #0d0f12; color: #f5f5f2; height: 100vh; overflow: hidden; }
+    .stApp { background: #0d0f12; color: #f7f2ea; height: 100vh; overflow: hidden; }
     html, body, [data-testid="stAppViewContainer"], .main {
         height: 100vh;
         overflow: hidden;
@@ -628,12 +628,39 @@ def css_for_streamlit() -> str:
         min-height: 0;
     }
     div[data-testid="column"]:first-child {
-        background: #14171b;
-        border: 1px solid rgba(255,255,255,.08);
+        background: #12161a;
+        border: 1px solid rgba(255,255,255,.16);
         border-radius: 8px;
         padding: .8rem .75rem;
         max-height: calc(100vh - 2rem);
         overflow-y: auto;
+        color: #f7f2ea;
+    }
+    div[data-testid="column"]:first-child * {
+        color: inherit;
+    }
+    div[data-testid="column"]:first-child label,
+    div[data-testid="column"]:first-child p,
+    div[data-testid="column"]:first-child span,
+    div[data-testid="column"]:first-child [data-testid="stWidgetLabel"],
+    div[data-testid="column"]:first-child [data-testid="stMarkdownContainer"] {
+        color: #e9dfd3 !important;
+    }
+    div[data-testid="column"]:first-child [data-testid="stCaptionContainer"],
+    div[data-testid="column"]:first-child small {
+        color: #b9aea2 !important;
+    }
+    div[data-testid="column"]:first-child h1,
+    div[data-testid="column"]:first-child h2,
+    div[data-testid="column"]:first-child h3 {
+        color: #fff8ed !important;
+    }
+    div[data-testid="stTabs"] button p {
+        color: #cfc4b8 !important;
+        font-weight: 750;
+    }
+    div[data-testid="stTabs"] button[aria-selected="true"] p {
+        color: #ff5a61 !important;
     }
     div[data-testid="column"]:has(iframe) {
         height: calc(100vh - 2rem);
@@ -648,16 +675,20 @@ def css_for_streamlit() -> str:
         width: 100%;
         border-radius: 8px;
         border: 1px solid rgba(255,255,255,.16);
-        background: #20252b;
-        color: #f6f2e9;
+        background: #242a31;
+        color: #fff6ea !important;
         min-height: 2.4rem;
         font-weight: 650;
     }
     div.stButton > button:hover { border-color: #d6b15e; color: #fff; }
     .stTextInput input, .stNumberInput input, .stTextArea textarea {
-        background: #0e1115;
-        color: #f8f5ee;
+        background: #0b0e12;
+        color: #fff6ea !important;
+        border-color: rgba(255,255,255,.42);
         border-radius: 8px;
+    }
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+        color: #8f98a4 !important;
     }
     .stTabs [data-baseweb="tab-list"] { gap: .25rem; }
     .stTabs [data-baseweb="tab"] { height: 2.2rem; padding: 0 .55rem; }
@@ -665,8 +696,9 @@ def css_for_streamlit() -> str:
     .status-pill {
         padding: .45rem .6rem;
         border-radius: 8px;
-        border: 1px solid rgba(255,255,255,.12);
-        background: rgba(255,255,255,.05);
+        border: 1px solid rgba(255,255,255,.22);
+        background: rgba(255,255,255,.075);
+        color: #fff6ea !important;
         font-size: .84rem;
     }
     .layout-grid { display: grid; grid-template-columns: 1fr; gap: .35rem; }

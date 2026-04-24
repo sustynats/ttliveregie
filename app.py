@@ -604,11 +604,29 @@ def active_image_name() -> str:
 def css_for_streamlit() -> str:
     return """
     <style>
-    .stApp { background: #0d0f12; color: #f5f5f2; }
-    [data-testid="stHeader"] { background: transparent; }
+    .stApp { background: #0d0f12; color: #f5f5f2; height: 100vh; overflow: hidden; }
+    html, body, [data-testid="stAppViewContainer"], .main {
+        height: 100vh;
+        overflow: hidden;
+    }
+    [data-testid="stHeader"] { background: transparent; height: 0; min-height: 0; }
     [data-testid="stSidebar"] { display: none; }
-    html, body, .stApp { min-height: 100vh; }
-    .block-container { max-width: 100%; padding: 1rem; }
+    section.main > div {
+        height: 100vh;
+        overflow: hidden;
+    }
+    .block-container {
+        max-width: 100%;
+        height: 100vh;
+        padding: 1rem;
+        overflow: hidden;
+    }
+    .block-container > div,
+    .block-container > div > div,
+    .block-container [data-testid="stHorizontalBlock"] {
+        height: 100%;
+        min-height: 0;
+    }
     div[data-testid="column"]:first-child {
         background: #14171b;
         border: 1px solid rgba(255,255,255,.08);
@@ -618,10 +636,9 @@ def css_for_streamlit() -> str:
         overflow-y: auto;
     }
     div[data-testid="column"]:has(iframe) {
-        position: sticky;
-        top: 1rem;
-        align-self: flex-start;
+        height: calc(100vh - 2rem);
         max-height: calc(100vh - 2rem);
+        align-self: flex-start;
         overflow: hidden;
     }
     div[data-testid="column"]:has(iframe) iframe {

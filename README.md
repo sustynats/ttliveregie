@@ -21,7 +21,8 @@ Dann im Browser oeffnen:
 1. App starten und TikTok-Username oder Live-URL eingeben.
 2. `Start` klicken. Die App verbindet sich ueber `TikTokLive` mit dem Live-Chat.
 3. Links Layout, Thema, Highlight, Countdown, Bild und Safety steuern.
-4. In TikTok Live Studio eine Browserquelle mit `http://localhost:8501?overlay=1` anlegen.
-5. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
+4. Optional manuelle Cloud-Woerter setzen und Schriftgroessen fuer Thema, Keywords, Highlight, Countdown und Uhr live anpassen.
+5. In TikTok Live Studio eine Browserquelle mit `http://localhost:8501?overlay=1` anlegen.
+6. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
 
 Hinweis: `TikTokLive` ist eine inoffizielle Bibliothek. Wenn TikTok intern etwas aendert, kann die Verbindung zeitweise fehlschlagen. Das Overlay zeigt niemals Usernamen oder einzelne Chatnachrichten, sondern nur aggregierte Keywords.

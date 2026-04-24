@@ -448,6 +448,9 @@ def init_state() -> None:
         "highlight_word": "",
         "highlight_draft": "",
         "auto_highlight": True,
+        "manual_cloud_words_text": "",
+        "manual_word_size": 130,
+        "manual_words_emphasis": True,
         "countdown_title": "Q&A startet in",
         "countdown_minutes": 10,
         "countdown_total": 10 * 60,
@@ -477,6 +480,9 @@ def init_state() -> None:
         "cloud_width": 68,
         "cloud_height": 66,
         "topic_text_size": 100,
+        "highlight_text_size": 100,
+        "countdown_text_size": 100,
+        "clock_text_size": 100,
         "overlay_opacity": 100,
         "transition_speed": 55,
         "bg_opacity": 100,
@@ -530,10 +536,12 @@ def snapshot_scene() -> dict[str, Any]:
     keys = [
         "layout", "active_image_id", "show_topic", "show_cloud", "show_highlight", "show_countdown",
         "show_clock", "show_background", "show_animations", "show_safe_zones", "show_overlay_frame",
-        "minimal_mode", "topic", "highlight_word", "countdown_title", "countdown_total",
+        "minimal_mode", "topic", "highlight_word", "manual_cloud_words_text", "manual_word_size",
+        "manual_words_emphasis", "countdown_title", "countdown_total",
         "countdown_remaining", "countdown_running", "bg_dim", "bg_blur", "bg_opacity", "bg_zoom",
         "bg_pos_x", "bg_pos_y", "bg_fit", "keyword_size", "keyword_density", "animation_intensity",
-        "cloud_width", "cloud_height", "topic_text_size", "overlay_opacity", "transition_speed",
+        "cloud_width", "cloud_height", "topic_text_size", "highlight_text_size", "countdown_text_size",
+        "clock_text_size", "overlay_opacity", "transition_speed",
         "focus_mode", "clear_overlay",
     ]
     return {key: st.session_state.get(key) for key in keys}
@@ -648,6 +656,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         keywords = keywords[:3]
     density = max(4, min(len(keywords), int(MAX_KEYWORDS * state.get("keyword_density", 80) / 100)))
     keywords = keywords[:density]
+    manual_words = [] if state.get("minimal_mode") else state.get("manual_cloud_words", [])
     topic = html.escape(state.get("topic") or "")
     highlight = html.escape(state.get("highlight_word") or "")
     clock = time.strftime("%H:%M")
@@ -665,10 +674,26 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     cloud_w = state.get("cloud_width", 68)
     cloud_h = state.get("cloud_height", 66)
     topic_size = state.get("topic_text_size", 100) / 100
+    highlight_size = state.get("highlight_text_size", 100) / 100
+    countdown_size = state.get("countdown_text_size", 100) / 100
+    clock_size = state.get("clock_text_size", 100) / 100
     keyword_size = state.get("keyword_size", 100) / 100
+    manual_size = state.get("manual_word_size", 130) / 100
 
     keyword_nodes = []
+    manual_set = set(manual_words)
+    manual_nodes = []
+    for i, word in enumerate(manual_words):
+        x, y = keyword_position(f"manual-{word}", i + 100)
+        size = (1.45 - min(i, 5) * 0.08) * manual_size
+        delay = (i % 5) * -0.9
+        emph = " manual-emphasis" if state.get("manual_words_emphasis", True) else ""
+        manual_nodes.append(
+            f'<span class="kw manual{emph}" style="--x:{x}%;--y:{y}%;--s:{size:.2f};--d:10.5s;--delay:{delay:.2f}s">{html.escape(word)}</span>'
+        )
     for i, item in enumerate(keywords):
+        if item["word"] in manual_set:
+            continue
         word = html.escape(item["word"])
         size = item.get("size", 1) * keyword_size
         x = min(80, max(5, item.get("x", 20) * cloud_w / 76))
@@ -703,7 +728,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     hidden = state.get("clear_overlay")
     topic_html = "" if hidden or not state.get("show_topic") else f'<div class="topic">{topic}</div>'
     highlight_html = "" if hidden or not state.get("show_highlight") or not highlight else f'<div class="highlight">{highlight}</div>'
-    cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud">{map_lines}{"".join(keyword_nodes)}</div>'
+    cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
     clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock">LIVE {clock}</div>'
     countdown_html = ""
     if not hidden and state.get("show_countdown"):
@@ -731,7 +756,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     :root {{
       --bg:{theme["bg"]}; --panel:{theme["panel"]}; --text:{theme["text"]}; --muted:{theme["muted"]};
       --accent:{theme["accent"]}; --accent2:{theme["accent2"]}; --glow:{theme["glow"]};
-      --opacity:{overlay_opacity}; --topicSize:{topic_size:.2f};
+      --opacity:{overlay_opacity}; --topicSize:{topic_size:.2f}; --highlightSize:{highlight_size:.2f};
+      --countdownSize:{countdown_size:.2f}; --clockSize:{clock_size:.2f};
     }}
     * {{ box-sizing:border-box; }}
     body {{
@@ -765,7 +791,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .topic::after {{ content:""; display:block; width:72px; height:3px; margin-top:18px; background:var(--accent); border-radius:3px; box-shadow:0 0 24px var(--glow); }}
     .highlight {{
       position:absolute; left:8%; top:36%; max-width:62%; padding:.18em .32em .26em;
-      font-size:clamp(42px, 9vw, 96px); font-weight:900; line-height:.9; color:var(--text);
+      font-size:calc(clamp(42px, 9vw, 96px) * var(--highlightSize)); font-weight:900; line-height:.9; color:var(--text);
       background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
       border-left:4px solid var(--accent); text-shadow:0 0 30px var(--glow), 0 12px 28px rgba(0,0,0,.32);
     }}
@@ -780,6 +806,11 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .animated .kw {{ animation: floaty var(--d) ease-in-out infinite; animation-delay:var(--delay); }}
     .kw.fresh {{ color:var(--accent); box-shadow:0 0 38px var(--glow), 0 12px 30px rgba(0,0,0,.24); }}
+    .kw.manual {{
+      z-index:4; color:var(--accent); background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 24%, var(--panel)), color-mix(in srgb, var(--accent2) 18%, var(--panel)));
+      border-color:color-mix(in srgb, var(--accent) 58%, transparent); text-transform:uppercase; letter-spacing:0;
+    }}
+    .kw.manual-emphasis {{ box-shadow:0 0 46px var(--glow), 0 14px 34px rgba(0,0,0,.32); }}
     .layout-map .kw {{ border-radius:999px; background:rgba(13,20,20,.68); }}
     .map-lines {{ position:absolute; inset:0; opacity:.42; }}
     .map-lines line {{ stroke:var(--accent); stroke-width:.22; vector-effect:non-scaling-stroke; }}
@@ -788,8 +819,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       padding:14px 16px; border:1px solid color-mix(in srgb, var(--accent) 32%, transparent);
       background:var(--panel); backdrop-filter:blur(14px); border-radius:8px;
     }}
-    .countdown b {{ display:block; font-size:14px; color:var(--muted); margin-bottom:2px; }}
-    .countdown span {{ display:block; font-size:32px; font-weight:850; line-height:1; }}
+    .countdown b {{ display:block; font-size:calc(14px * var(--countdownSize)); color:var(--muted); margin-bottom:2px; }}
+    .countdown span {{ display:block; font-size:calc(32px * var(--countdownSize)); font-weight:850; line-height:1; }}
     .ring {{
       width:54px; height:54px; border-radius:50%;
       background:conic-gradient(var(--accent) calc(var(--pct) * 1%), rgba(255,255,255,.13) 0);
@@ -797,8 +828,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .ring::after {{ content:""; position:absolute; inset:7px; border-radius:50%; background:var(--bg); }}
     .live-clock {{
-      position:absolute; top:7%; right:8%; padding:9px 12px; border-radius:999px; font-size:14px;
-      font-weight:800; color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
+      position:absolute; top:7%; right:8%; padding:9px 12px; border-radius:999px;
+      font-weight:800; font-size:calc(14px * var(--clockSize)); color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
     }}
     .safe {{ position:absolute; display:grid; place-items:center; color:rgba(255,255,255,.72); border:1px dashed rgba(255,255,255,.38); background:rgba(255,255,255,.06); font-size:13px; font-weight:800; text-transform:uppercase; }}
     .safe.guest {{ top:0; right:0; width:28%; height:100%; }}
@@ -810,7 +841,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     @media (max-width: 740px) {{
       .stage-wrap {{ padding:4px; }}
       .topic {{ width:74%; font-size:calc(clamp(30px, 12vw, 58px) * var(--topicSize)); }}
-      .highlight {{ font-size:clamp(38px, 13vw, 74px); }}
+      .highlight {{ font-size:calc(clamp(38px, 13vw, 74px) * var(--highlightSize)); }}
       .kw {{ font-size:clamp(16px, 6vw, 28px); }}
     }}
     </style>
@@ -839,6 +870,7 @@ def current_overlay_state() -> dict[str, Any]:
     state.update(
         {
             "keywords": st.session_state.keywords,
+            "manual_cloud_words": parse_manual_cloud_words(st.session_state.manual_cloud_words_text),
             "active_image_data": active_image_data(),
             "active_image_name": active_image_name(),
             "aspect": st.session_state.aspect,
@@ -935,6 +967,15 @@ def render_highlight_panel() -> None:
         st.session_state.highlight_word = ""
         st.session_state.highlight_draft = ""
         st.session_state.auto_highlight = False
+    st.session_state.manual_cloud_words_text = st.text_area(
+        "Manuelle Cloud-Wörter",
+        value=st.session_state.manual_cloud_words_text,
+        height=88,
+        help="Ein Wort pro Zeile oder mit Komma trennen. Die Wörter laufen durch den Safety-Filter und werden im Overlay hervorgehoben.",
+    )
+    st.toggle("Manuelle Wörter hervorheben", key="manual_words_emphasis")
+    if st.button("Manuelle Wörter löschen", key="manual_words_clear", use_container_width=True):
+        st.session_state.manual_cloud_words_text = ""
 
 
 def render_countdown_panel() -> None:
@@ -1077,6 +1118,10 @@ def render_faders() -> None:
     st.slider("Cloud-Breite", 35, 90, key="cloud_width")
     st.slider("Cloud-Höhe", 35, 90, key="cloud_height")
     st.slider("Textgröße Thema", 65, 145, key="topic_text_size")
+    st.slider("Textgröße Highlight", 60, 160, key="highlight_text_size")
+    st.slider("Textgröße Manuelle Wörter", 80, 210, key="manual_word_size")
+    st.slider("Textgröße Countdown", 70, 150, key="countdown_text_size")
+    st.slider("Textgröße Live-Uhr", 70, 150, key="clock_text_size")
     st.slider("Overlay-Transparenz", 20, 100, key="overlay_opacity")
     st.slider("Übergangsgeschwindigkeit", 10, 100, key="transition_speed")
 
@@ -1092,6 +1137,17 @@ def safety_status() -> tuple[str, str]:
 
 def parse_word_list(text: str) -> set[str]:
     return {normalize_word(part) for part in re.split(r"[\n,; ]+", text or "") if normalize_word(part)}
+
+
+def parse_manual_cloud_words(text: str) -> list[str]:
+    words: list[str] = []
+    seen: set[str] = set()
+    for part in re.split(r"[\n,;]+", text or ""):
+        cleaned = normalize_word(part)
+        if cleaned and cleaned not in seen and is_safe_keyword(cleaned):
+            seen.add(cleaned)
+            words.append(cleaned)
+    return words[:10]
 
 
 def render_safety_panel() -> None:

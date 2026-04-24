@@ -611,27 +611,25 @@ def css_for_streamlit() -> str:
     }
     [data-testid="stHeader"] { background: transparent; height: 0; min-height: 0; }
     [data-testid="stSidebar"] { display: none; }
-    section.main > div {
-        height: 100vh;
-        overflow: hidden;
-    }
     .block-container {
         max-width: 100%;
         height: 100vh;
+        max-height: 100vh;
         padding: 1rem;
         overflow: hidden;
     }
-    .block-container > div,
-    .block-container > div > div,
-    .block-container [data-testid="stHorizontalBlock"] {
-        height: 100%;
+    .block-container div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]) {
+        height: calc(100vh - 2rem);
+        max-height: calc(100vh - 2rem);
         min-height: 0;
+        align-items: flex-start;
     }
     div[data-testid="column"]:first-child {
         background: #12161a;
         border: 1px solid rgba(255,255,255,.16);
         border-radius: 8px;
         padding: .8rem .75rem;
+        height: calc(100vh - 2rem);
         max-height: calc(100vh - 2rem);
         overflow-y: auto;
         color: #f7f2ea;

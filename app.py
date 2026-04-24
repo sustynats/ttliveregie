@@ -1032,14 +1032,19 @@ def render_image_panel() -> None:
                 st.session_state.images = [img for img in st.session_state.images if img["id"] != item["id"]]
                 if st.session_state.active_image_id == item["id"]:
                     st.session_state.active_image_id = st.session_state.images[0]["id"] if st.session_state.images else None
-    c1, c2 = st.columns(2)
-    if c1.button("Bild entfernen", key="image_remove", use_container_width=True):
+    st.caption("Ausblenden behaelt das aktive Bild in der Galerie. Abwaehlen entfernt nur die aktive Auswahl. Loeschen entfernt ein Bild aus der Session-Galerie.")
+    c1, c2, c3 = st.columns(3)
+    hide_label = "Bild einblenden" if not st.session_state.show_background else "Bild ausblenden"
+    if c1.button(hide_label, key="image_toggle_visibility", use_container_width=True):
+        st.session_state.show_background = not st.session_state.show_background
+    if c2.button("Aktives Bild abwählen", key="image_remove", use_container_width=True):
         st.session_state.active_image_id = None
-    if c2.button("Layout automatisch optimieren", key="image_auto_optimize", use_container_width=True):
+    if c3.button("Look optimieren", key="image_auto_optimize", use_container_width=True):
         st.session_state.bg_dim = 58
         st.session_state.bg_blur = 5
         st.session_state.bg_opacity = 88
         st.session_state.cloud_width = 62
+        st.session_state.show_background = True
     st.selectbox("Bild-Fit", ["cover", "contain"], key="bg_fit")
     brightness = st.slider("Helligkeit", 20, 120, value=120 - st.session_state.bg_dim, key="image_brightness")
     st.session_state.bg_dim = 120 - brightness

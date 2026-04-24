@@ -618,55 +618,79 @@ def css_for_streamlit() -> str:
         padding: 1rem;
         overflow: hidden;
     }
-    .block-container div[data-testid="stHorizontalBlock"]:has(> div[data-testid="column"]) {
+    .block-container div[data-testid="stHorizontalBlock"]:has(.st-key-control_panel_scroll) {
         height: calc(100vh - 2rem);
         max-height: calc(100vh - 2rem);
         min-height: 0;
         align-items: flex-start;
     }
-    div[data-testid="column"]:first-child {
+    .st-key-control_panel_scroll {
         background: #12161a;
         border: 1px solid rgba(255,255,255,.16);
         border-radius: 8px;
         padding: .8rem .75rem;
         height: calc(100vh - 2rem);
         max-height: calc(100vh - 2rem);
-        overflow-y: auto;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
         color: #f7f2ea;
     }
-    div[data-testid="column"]:first-child * {
+    .st-key-control_panel_scroll > div,
+    .st-key-control_panel_scroll [data-testid="stVerticalBlock"] {
+        min-height: 0 !important;
+        max-height: none !important;
+    }
+    .st-key-control_panel_scroll * {
         color: inherit;
+        opacity: 1 !important;
     }
-    div[data-testid="column"]:first-child label,
-    div[data-testid="column"]:first-child p,
-    div[data-testid="column"]:first-child span,
-    div[data-testid="column"]:first-child [data-testid="stWidgetLabel"],
-    div[data-testid="column"]:first-child [data-testid="stMarkdownContainer"] {
-        color: #e9dfd3 !important;
+    [data-testid="stWidgetLabel"],
+    [data-testid="stWidgetLabel"] *,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] *,
+    label,
+    label *,
+    div[data-baseweb] p,
+    div[data-baseweb] span {
+        color: #f0e6da !important;
+        opacity: 1 !important;
     }
-    div[data-testid="column"]:first-child [data-testid="stCaptionContainer"],
-    div[data-testid="column"]:first-child small {
-        color: #b9aea2 !important;
+    .st-key-control_panel_scroll label,
+    .st-key-control_panel_scroll p,
+    .st-key-control_panel_scroll span,
+    .st-key-control_panel_scroll [data-testid="stWidgetLabel"],
+    .st-key-control_panel_scroll [data-testid="stWidgetLabel"] *,
+    .st-key-control_panel_scroll [data-testid="stMarkdownContainer"],
+    .st-key-control_panel_scroll [data-testid="stMarkdownContainer"] *,
+    .st-key-control_panel_scroll [data-baseweb="checkbox"] *,
+    .st-key-control_panel_scroll [data-baseweb="switch"] * {
+        color: #f0e6da !important;
+        opacity: 1 !important;
     }
-    div[data-testid="column"]:first-child h1,
-    div[data-testid="column"]:first-child h2,
-    div[data-testid="column"]:first-child h3 {
+    .st-key-control_panel_scroll [data-testid="stCaptionContainer"],
+    .st-key-control_panel_scroll [data-testid="stCaptionContainer"] *,
+    .st-key-control_panel_scroll small {
+        color: #c9bdb0 !important;
+    }
+    .st-key-control_panel_scroll h1,
+    .st-key-control_panel_scroll h2,
+    .st-key-control_panel_scroll h3 {
         color: #fff8ed !important;
     }
-    div[data-testid="stTabs"] button p {
+    .st-key-control_panel_scroll div[data-testid="stTabs"] button p {
         color: #cfc4b8 !important;
         font-weight: 750;
     }
-    div[data-testid="stTabs"] button[aria-selected="true"] p {
+    .st-key-control_panel_scroll div[data-testid="stTabs"] button[aria-selected="true"] p {
         color: #ff5a61 !important;
     }
-    div[data-testid="column"]:has(iframe) {
+    .st-key-stage_panel_fixed {
         height: calc(100vh - 2rem);
         max-height: calc(100vh - 2rem);
         align-self: flex-start;
         overflow: hidden;
     }
-    div[data-testid="column"]:has(iframe) iframe {
+    .st-key-stage_panel_fixed iframe {
         max-height: calc(100vh - 5.5rem);
     }
     div.stButton > button {
@@ -1275,14 +1299,16 @@ def main() -> None:
 
     left, right = st.columns([0.28, 0.72], gap="medium")
     with left:
-        render_control_panel()
+        with st.container(height=820, key="control_panel_scroll"):
+            render_control_panel()
     with right:
-        top_cols = st.columns([1, 0.22])
-        with top_cols[0]:
-            st.markdown("### Bühne / Overlay-Fläche")
-        with top_cols[1]:
-            st.selectbox("Format", ["9:16", "16:9"], key="aspect", label_visibility="collapsed")
-        render_stage(current_overlay_state(), height=900)
+        with st.container(key="stage_panel_fixed"):
+            top_cols = st.columns([1, 0.22])
+            with top_cols[0]:
+                st.markdown("### Bühne / Overlay-Fläche")
+            with top_cols[1]:
+                st.selectbox("Format", ["9:16", "16:9"], key="aspect", label_visibility="collapsed")
+            render_stage(current_overlay_state(), height=900)
 
 
 if __name__ == "__main__":

@@ -607,7 +607,8 @@ def css_for_streamlit() -> str:
     .stApp { background: #0d0f12; color: #f5f5f2; }
     [data-testid="stHeader"] { background: transparent; }
     [data-testid="stSidebar"] { display: none; }
-    .block-container { max-width: 100%; padding: 1rem 1rem 1.4rem; }
+    html, body, .stApp { min-height: 100vh; }
+    .block-container { max-width: 100%; padding: 1rem; }
     div[data-testid="column"]:first-child {
         background: #14171b;
         border: 1px solid rgba(255,255,255,.08);
@@ -615,6 +616,16 @@ def css_for_streamlit() -> str:
         padding: .8rem .75rem;
         max-height: calc(100vh - 2rem);
         overflow-y: auto;
+    }
+    div[data-testid="column"]:has(iframe) {
+        position: sticky;
+        top: 1rem;
+        align-self: flex-start;
+        max-height: calc(100vh - 2rem);
+        overflow: hidden;
+    }
+    div[data-testid="column"]:has(iframe) iframe {
+        max-height: calc(100vh - 5.5rem);
     }
     div.stButton > button {
         width: 100%;

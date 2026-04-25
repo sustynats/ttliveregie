@@ -736,6 +736,7 @@ def init_state() -> None:
         "show_ai_card": False,
         "ai_prompt": "",
         "ai_response": "",
+        "ai_error": "",
         "ai_model": "gemini-2.5-flash",
         "ai_max_chars": 1200,
         "overlay_room_id": "",
@@ -761,6 +762,12 @@ def init_state() -> None:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
     if st.session_state.get("ai_model") in LEGACY_AI_MODEL_MAP:
         st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
+    if st.session_state.get("ai_model") not in AI_MODELS:
+        st.session_state.ai_model = "gemini-2.5-flash"
+    if is_ai_error_text(st.session_state.get("ai_response", "")):
+        st.session_state.ai_error = st.session_state.ai_response
+        st.session_state.ai_response = ""
+        st.session_state.show_ai_card = False
     if "bg_brightness" not in st.session_state:
         st.session_state.bg_brightness = 115
     if not st.session_state.get("user_adjusted_cloud_position"):
@@ -818,7 +825,7 @@ def snapshot_scene() -> dict[str, Any]:
         "show_video", "video_url", "video_show_background", "video_x", "video_y", "video_width", "video_height",
         "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode",
         "website_preview_title", "website_preview_text", "website_preview_error", "website_x", "website_y",
-        "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_model", "overlay_room_id",
+        "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_error", "ai_model", "overlay_room_id",
         "ai_max_chars",
     ]
     return {key: st.session_state.get(key) for key in keys}
@@ -834,6 +841,10 @@ def apply_scene(scene: dict[str, Any]) -> None:
         st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
     if st.session_state.get("ai_model") not in AI_MODELS:
         st.session_state.ai_model = "gemini-2.5-flash"
+    if is_ai_error_text(st.session_state.get("ai_response", "")):
+        st.session_state.ai_error = st.session_state.ai_response
+        st.session_state.ai_response = ""
+        st.session_state.show_ai_card = False
     st.session_state.topic_draft = st.session_state.topic
     st.session_state.highlight_draft = st.session_state.highlight_word
 
@@ -893,6 +904,10 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
     if st.session_state.get("ai_model") not in AI_MODELS:
         st.session_state.ai_model = "gemini-2.5-flash"
+    if is_ai_error_text(st.session_state.get("ai_response", "")):
+        st.session_state.ai_error = st.session_state.ai_response
+        st.session_state.ai_response = ""
+        st.session_state.show_ai_card = False
     if not payload.get("user_adjusted_cloud_position"):
         st.session_state.cloud_pos_x = 50
         st.session_state.cloud_pos_y = 50
@@ -1083,6 +1098,26 @@ def google_api_key() -> str:
     return ""
 
 
+def is_ai_error_text(text: str) -> bool:
+    markers = ("KI-Anfrage fehlgeschlagen", "RESOURCE_EXHAUSTED", "NOT_FOUND", "quota", "429", "404")
+    return any(marker.lower() in (text or "").lower() for marker in markers)
+
+
+def friendly_ai_error(exc: Exception) -> str:
+    raw = str(exc)
+    low = raw.lower()
+    if "resource_exhausted" in low or "quota" in low or "429" in low:
+        return (
+            "Google hat das aktuelle Kontingent fuer dieses Modell/API-Projekt erreicht. "
+            "Bitte spaeter erneut versuchen, in Google AI Studio das Kontingent prüfen oder ein anderes Modell waehlen."
+        )
+    if "not_found" in low or "404" in low or "is not found" in low:
+        return "Dieses Gemini-Modell ist fuer deinen API-Key oder diese API-Version nicht verfuegbar. Bitte Gemini 2.5 Flash oder 2.5 Flash Lite waehlen."
+    if "api key" in low or "permission" in low or "unauth" in low:
+        return "Der Google API-Key wurde abgelehnt oder hat keine Berechtigung fuer Gemini. Bitte Streamlit Secrets und Google AI Studio pruefen."
+    return f"KI-Anfrage fehlgeschlagen: {raw[:420]}"
+
+
 def run_ai_summary(prompt: str) -> tuple[bool, str]:
     prompt = (prompt or "").strip()
     max_chars = int(max(300, min(3000, st.session_state.get("ai_max_chars", 1200))))
@@ -1117,7 +1152,7 @@ def run_ai_summary(prompt: str) -> tuple[bool, str]:
             text = text[: max_chars - 4].rstrip() + " ..."
         return True, text or "Keine Antwort erhalten."
     except Exception as exc:
-        return False, f"KI-Anfrage fehlgeschlagen: {exc}"
+        return False, friendly_ai_error(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -1529,7 +1564,9 @@ def render_overlay_html(state: dict[str, Any]) -> str:
             )
     ai_html = ""
     if not hidden and state.get("show_ai_card") and state.get("ai_response"):
-        ai_html = f'<div class="ai-card"><b>KI-Check</b><p>{html.escape(state.get("ai_response",""))}</p></div>'
+        ai_text = state.get("ai_response", "")
+        if not is_ai_error_text(ai_text):
+            ai_html = f'<div class="ai-card"><b>KI-Check</b><p>{html.escape(ai_text)}</p></div>'
 
     frame_cls = " framed" if state.get("show_overlay_frame", True) else ""
     anim_cls = " animated" if anim_enabled else ""
@@ -1669,12 +1706,13 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .stage-web-card.reader b {{ font-size:clamp(24px, 3.7vw, 46px); }}
     .stage-web-card.reader p {{ max-width:96%; font-size:clamp(15px, 1.8vw, 21px); line-height:1.38; overflow:hidden; }}
     .ai-card {{
-      position:absolute; left:7%; right:30%; bottom:20%; z-index:6; padding:18px 20px;
+      position:absolute; left:7%; right:34%; bottom:20%; z-index:6; padding:18px 20px;
+      max-height:46%; overflow:hidden;
       border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
       backdrop-filter:blur(16px); box-shadow:0 18px 48px rgba(0,0,0,.34);
     }}
     .ai-card b {{ display:block; font-family:var(--countdownFont); color:var(--accent); margin-bottom:8px; }}
-    .ai-card p {{ margin:0; white-space:pre-wrap; font-size:clamp(16px, 2.2vw, 26px); line-height:1.25; }}
+    .ai-card p {{ margin:0; white-space:pre-wrap; font-size:clamp(14px, 1.55vw, 22px); line-height:1.28; }}
     @keyframes floaty {{
       0%,100% {{ transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s)); opacity:.82; }}
       50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity:1; }}
@@ -2177,16 +2215,23 @@ def render_ai_panel() -> None:
     c1, c2 = st.columns(2)
     if c1.button("KI prüfen", key="ai_run", use_container_width=True):
         ok, text = run_ai_summary(st.session_state.ai_prompt)
-        st.session_state.ai_response = text
-        st.session_state.show_ai_card = ok
         if ok:
+            st.session_state.ai_response = text
+            st.session_state.ai_error = ""
+            st.session_state.show_ai_card = True
             st.success("Antwort ist bereit.")
         else:
+            st.session_state.ai_error = text
+            st.session_state.ai_response = ""
+            st.session_state.show_ai_card = False
             st.error(text)
     if c2.button("KI-Karte löschen", key="ai_clear", use_container_width=True):
         st.session_state.ai_response = ""
+        st.session_state.ai_error = ""
         st.session_state.show_ai_card = False
-    st.toggle("KI-Karte auf Bühne anzeigen", key="show_ai_card")
+    st.toggle("KI-Karte auf Bühne anzeigen", key="show_ai_card", disabled=not bool(st.session_state.ai_response))
+    if st.session_state.ai_error:
+        st.error(st.session_state.ai_error)
     if st.session_state.ai_response:
         st.text_area("Aktuelle KI-Antwort", value=st.session_state.ai_response, height=160, disabled=True)
 

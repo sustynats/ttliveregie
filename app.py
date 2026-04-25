@@ -1337,6 +1337,9 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     topic = html.escape(state.get("topic") or "")
     highlight = html.escape(state.get("highlight_word") or "")
     clock = time.strftime("%H:%M")
+    live_duration_text = html.escape(state.get("live_duration") or "00:00:00")
+    live_started_at = state.get("live_started_at")
+    live_start_text = time.strftime("%H:%M:%S", time.localtime(live_started_at)) if live_started_at else "--:--:--"
     remaining = int(state.get("countdown_remaining") or 0)
     total = max(1, int(state.get("countdown_total") or 1))
     countdown_pct = max(0, min(100, remaining / total * 100))
@@ -1425,8 +1428,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     highlight_html = "" if hidden or not state.get("show_highlight") or not highlight else f'<div class="highlight">{highlight}</div>'
     cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud cloud-{cloud_slug}">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
     live_since = ""
-    if state.get("show_live_since") and state.get("live_started_at"):
-        live_since = f'<span>seit {html.escape(state.get("live_duration", "00:00:00"))} · Start {time.strftime("%H:%M:%S", time.localtime(state.get("live_started_at")))}</span>'
+    if state.get("show_live_since"):
+        live_since = f'<span>live seit {live_duration_text}</span><small>Start {live_start_text}</small>'
     clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock"><b>LIVE {clock}</b>{live_since}</div>'
     countdown_html = ""
     if not hidden and state.get("show_countdown"):
@@ -1589,7 +1592,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       position:absolute; top:7%; right:8%; padding:9px 12px; border-radius:999px;
       display:flex; flex-direction:column; gap:1px; font-family:var(--countdownFont); font-weight:800; font-size:calc(14px * var(--clockSize)); color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
     }}
-    .live-clock span {{ font-size:.76em; color:var(--muted); }}
+    .live-clock span, .live-clock small {{ font-size:.76em; color:var(--muted); line-height:1.08; }}
     .safe {{ position:absolute; display:grid; place-items:center; color:rgba(255,255,255,.72); border:1px dashed rgba(255,255,255,.38); background:rgba(255,255,255,.06); font-size:13px; font-weight:800; text-transform:uppercase; }}
     .safe.guest {{ top:0; right:0; width:28%; height:100%; }}
     .safe.chat {{ left:0; right:0; bottom:0; height:18%; }}

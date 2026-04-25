@@ -993,6 +993,72 @@ def css_for_streamlit() -> str:
     .stTabs [data-baseweb="tab-list"] { gap: .25rem; }
     .stTabs [data-baseweb="tab"] { height: 2.2rem; padding: 0 .55rem; }
     .regie-title { font-size: 1.05rem; font-weight: 800; margin: .15rem 0 .65rem; }
+    .control-hero {
+        padding: .75rem .72rem;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 8px;
+        background: linear-gradient(135deg, rgba(255,255,255,.095), rgba(255,255,255,.035));
+        margin-bottom: .75rem;
+    }
+    .control-hero h2 {
+        margin: 0 0 .35rem;
+        font-size: 1.05rem;
+        line-height: 1.05;
+        color: #fff8ed !important;
+    }
+    .control-meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .35rem;
+        margin-top: .55rem;
+    }
+    .control-chip {
+        border: 1px solid rgba(255,255,255,.15);
+        border-radius: 7px;
+        padding: .38rem .45rem;
+        background: rgba(255,255,255,.055);
+        font-size: .72rem;
+        line-height: 1.15;
+        color: #f4eadc !important;
+        min-height: 2.2rem;
+    }
+    .control-chip b { display:block; color:#ffffff !important; font-size:.78rem; margin-bottom:.08rem; }
+    .status-dot {
+        display:inline-block; width:.58rem; height:.58rem; border-radius:999px; margin-right:.35rem;
+        background:#69717d; box-shadow:0 0 0 3px rgba(255,255,255,.06);
+    }
+    .status-dot.live { background:#43e37f; box-shadow:0 0 18px rgba(67,227,127,.42); }
+    .status-dot.warn { background:#ffd166; box-shadow:0 0 18px rgba(255,209,102,.32); }
+    .section-note {
+        border-left: 3px solid #ff5a61;
+        background: rgba(255,255,255,.055);
+        padding: .45rem .55rem;
+        border-radius: 0 7px 7px 0;
+        margin: .4rem 0 .6rem;
+        color: #d9cec3 !important;
+        font-size: .78rem;
+    }
+    .layout-card {
+        padding: .52rem .58rem;
+        border: 1px solid rgba(255,255,255,.16);
+        border-radius: 8px;
+        background: rgba(255,255,255,.052);
+        margin: .35rem 0 .2rem;
+    }
+    .layout-card b { color:#fff8ed !important; }
+    .layout-card span { color:#cfc3b6 !important; font-size:.76rem; }
+    div[data-testid="stExpander"] {
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 8px;
+        background: rgba(255,255,255,.035);
+        margin-bottom: .5rem;
+        overflow: hidden;
+    }
+    div[data-testid="stExpander"] summary {
+        background: rgba(255,255,255,.055);
+        color: #fff8ed !important;
+        font-weight: 850;
+    }
     .status-pill {
         padding: .45rem .6rem;
         border-radius: 8px;
@@ -1329,6 +1395,37 @@ def section(title: str) -> None:
     st.markdown(f"### {title}")
 
 
+def render_director_header() -> None:
+    rt = live_runtime()
+    with rt.lock:
+        status = rt.status
+        started_at = rt.started_at
+    is_live = status == "connected"
+    is_warn = status in {"connecting", "error"}
+    dot_cls = "live" if is_live else "warn" if is_warn else ""
+    runtime = format_duration(time.time() - started_at) if started_at and is_live else "00:00:00"
+    scene = st.session_state.last_active_scene or "nicht gesetzt"
+    st.markdown(
+        f"""
+        <div class="control-hero">
+          <h2>Live-Regiepult</h2>
+          <div><span class="status-dot {dot_cls}"></span><b>{html.escape(status)}</b> · Laufzeit {runtime}</div>
+          <div class="control-meta">
+            <div class="control-chip"><b>Szene</b>{html.escape(scene)}</div>
+            <div class="control-chip"><b>Look</b>{html.escape(st.session_state.layout)}</div>
+            <div class="control-chip"><b>Cloud</b>{html.escape(st.session_state.cloud_style)}</div>
+            <div class="control-chip"><b>Keywords</b>{len(st.session_state.keywords)} aktiv</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_note(text: str) -> None:
+    st.markdown(f'<div class="section-note">{html.escape(text)}</div>', unsafe_allow_html=True)
+
+
 def render_connection_panel() -> None:
     rt = live_runtime()
     section("Verbindung")
@@ -1424,8 +1521,22 @@ def render_countdown_panel() -> None:
 
 def render_layout_panel() -> None:
     section("Layout")
+    descriptions = {
+        "Editorial Dark": "ruhig, politisch, Magazin-Look",
+        "Neon Pop": "bunt, Glow, TikTok-Energie",
+        "Candy Gradient": "weich, poppig, freundlich",
+        "Bauhaus Clean": "hell, sachlich, geometrisch",
+        "Soft Power": "warm, weich, hochwertig",
+        "System Map": "Netzwerk, Analyse, Denklandkarte",
+        "Newspaper / Print": "Zeitung, Essay, Kommentar",
+        "Festival / Color Splash": "aktiv, bunt, verspielt",
+    }
     for name, theme in THEMES.items():
         active = "✓ " if st.session_state.layout == name else ""
+        st.markdown(
+            f'<div class="layout-card"><b>{active}{html.escape(name)}</b><br><span>{html.escape(descriptions.get(name, ""))}</span></div>',
+            unsafe_allow_html=True,
+        )
         if st.button(f"{active}{name}", key=f"layout_{theme['key']}", use_container_width=True):
             st.session_state.layout = name
             st.session_state.topic_font_family = theme.get("font", st.session_state.topic_font_family)
@@ -1531,14 +1642,14 @@ def render_scene_panel() -> None:
 
 
 def render_quick_actions() -> None:
-    section("Quick Actions")
+    section("Live-Schalter")
     actions = [
-        ("Freeze Keywords", "freeze"),
-        ("Reset Keywords", "reset"),
+        ("Freeze", "freeze"),
+        ("Reset", "reset"),
         ("Auto-Highlight", "auto_highlight_action"),
-        ("Focus Mode", "focus"),
-        ("Minimal Mode", "minimal"),
-        ("Clear Overlay", "clear"),
+        ("Focus", "focus"),
+        ("Minimal", "minimal"),
+        ("Clear", "clear"),
         ("Show All", "show_all"),
         ("Hide All", "hide_all"),
     ]
@@ -1683,32 +1794,39 @@ def render_persistence_panel() -> None:
 
 
 def render_control_panel() -> None:
-    st.markdown('<div class="regie-title">Live-Regiepult</div>', unsafe_allow_html=True)
+    render_director_header()
     render_quick_actions()
     if st.button("Save Scene", key="quick_save_scene_top", use_container_width=True):
         scene_name = st.session_state.last_active_scene or f"Szene {len(st.session_state.scenes) + 1}"
         st.session_state.scenes[scene_name] = snapshot_scene()
         st.session_state.last_active_scene = scene_name
-    tabs = st.tabs(["Live", "Szenen", "Look", "Cloud", "Text", "Bilder", "Safety", "Backup"])
-    with tabs[0]:
+    with st.expander("1. Verbindung", expanded=True):
+        render_section_note("Nur hier startest oder stoppst du den TikTok-Live-Chat. Im Overlay erscheinen keine Usernamen oder Einzelkommentare.")
         render_connection_panel()
+    with st.expander("2. Szenen", expanded=True):
+        render_section_note("Szenen speichern den kompletten visuellen Zustand. Nutze sie live wie Regie-Cues.")
+        render_scene_panel()
+    with st.expander("3. Sichtbarkeit", expanded=False):
         render_toggle_panel()
+    with st.expander("4. Thema & Highlight", expanded=True):
         render_topic_panel()
         render_highlight_panel()
+    with st.expander("5. Countdown & Uhr", expanded=False):
         render_countdown_panel()
-    with tabs[1]:
-        render_scene_panel()
-    with tabs[2]:
+    with st.expander("6. Layouts", expanded=False):
+        render_section_note("Ein Layout setzt Farbwelt, typografische Grundstimmung und Standard-Cloud. Manuelle Cloud-Einstellungen bleiben fixiert, wenn der Cloud-Lock aktiv ist.")
         render_layout_panel()
-    with tabs[3]:
+    with st.expander("7. Cloud", expanded=False):
+        render_section_note("Hier verschiebst du die Tag-Cloud frei auf der Bühne. X/Y reagieren live.")
         render_faders()
-    with tabs[4]:
-        render_typography_panel()
-    with tabs[5]:
+    with st.expander("8. Bilder", expanded=False):
+        render_section_note("Ausblenden hält das aktive Bild bereit. Löschen entfernt es aus der lokalen Bildbibliothek.")
         render_image_panel()
-    with tabs[6]:
+    with st.expander("9. Typografie", expanded=False):
+        render_typography_panel()
+    with st.expander("10. Safety", expanded=False):
         render_safety_panel()
-    with tabs[7]:
+    with st.expander("11. Persistenz / Backup", expanded=False):
         render_persistence_panel()
 
 

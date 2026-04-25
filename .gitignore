@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 .overlay_runtime_state.json
+.ttliveregie_state.json

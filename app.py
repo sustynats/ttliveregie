@@ -10,6 +10,7 @@ import queue
 import re
 import threading
 import time
+import uuid
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +19,12 @@ from typing import Any
 import regex
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+
+try:
+    from streamlit_js_eval import get_local_storage, streamlit_js_eval
+except Exception:
+    get_local_storage = None
+    streamlit_js_eval = None
 
 try:
     from TikTokLive import TikTokLiveClient
@@ -33,11 +40,38 @@ except Exception:  # TikTokLive may be installed after first launch.
 
 APP_DIR = Path(__file__).parent
 RUNTIME_STATE_FILE = APP_DIR / ".overlay_runtime_state.json"
+SERVER_STATE_FILE = APP_DIR / ".ttliveregie_state.json"
+LOCAL_STORAGE_KEY = "ttliveregie_state_v2"
 COMMENT_WINDOW_SECONDS = 4 * 60
 KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
+
+FONT_PRESETS = {
+    "System Sans": 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    "Inter": 'Inter, ui-sans-serif, system-ui, sans-serif',
+    "Arial": "Arial, Helvetica, sans-serif",
+    "Helvetica": "Helvetica, Arial, sans-serif",
+    "Georgia": "Georgia, serif",
+    "Times New Roman": '"Times New Roman", Times, serif',
+    "Playfair Display": '"Playfair Display", Georgia, serif',
+    "Merriweather": "Merriweather, Georgia, serif",
+    "Montserrat": "Montserrat, Arial, sans-serif",
+    "Poppins": "Poppins, Arial, sans-serif",
+    "Bebas Neue": '"Bebas Neue", Impact, sans-serif',
+}
+
+CLOUD_STYLES = [
+    "Classic Word Cloud",
+    "Vertical Cloud",
+    "Orbital Cloud",
+    "Bubble Cloud",
+    "Magazine Cloud",
+    "Network Cloud",
+    "Color Burst",
+    "Minimal Cloud",
+]
 
 THEMES = {
     "Editorial Dark": {
@@ -49,26 +83,70 @@ THEMES = {
         "accent": "#d6b15e",
         "accent2": "#8f7747",
         "glow": "rgba(214,177,94,.28)",
+        "cloud_style": "Magazine Cloud",
+        "font": "Playfair Display",
+        "cloud_x": 42,
+        "cloud_y": 54,
     },
-    "Neon Pulse": {
+    "Neon Pop": {
         "key": "neon",
-        "bg": "#090b13",
-        "panel": "rgba(13, 16, 30, .76)",
+        "bg": "#050614",
+        "panel": "rgba(9, 10, 26, .76)",
         "text": "#f4f7ff",
-        "muted": "#adb8da",
-        "accent": "#33f3ff",
-        "accent2": "#ff4fd8",
-        "glow": "rgba(51,243,255,.32)",
+        "muted": "#b8c1ff",
+        "accent": "#ff3df2",
+        "accent2": "#2dfcff",
+        "accent3": "#baff29",
+        "glow": "rgba(255,61,242,.38)",
+        "cloud_style": "Color Burst",
+        "font": "Poppins",
+        "cloud_x": 50,
+        "cloud_y": 52,
     },
-    "Clean Studio": {
-        "key": "clean",
-        "bg": "#f3f3ef",
-        "panel": "rgba(255,255,255,.82)",
-        "text": "#1c2023",
-        "muted": "#5e666f",
-        "accent": "#315f72",
-        "accent2": "#b88a4b",
-        "glow": "rgba(49,95,114,.18)",
+    "Candy Gradient": {
+        "key": "candy",
+        "bg": "#ff8cc6",
+        "panel": "rgba(255,255,255,.30)",
+        "text": "#26133a",
+        "muted": "#6e3f75",
+        "accent": "#ff6b35",
+        "accent2": "#00d1c7",
+        "accent3": "#ffe14f",
+        "glow": "rgba(255,225,79,.32)",
+        "cloud_style": "Bubble Cloud",
+        "font": "Poppins",
+        "cloud_x": 50,
+        "cloud_y": 57,
+    },
+    "Bauhaus Clean": {
+        "key": "bauhaus",
+        "bg": "#f4efe2",
+        "panel": "rgba(255,255,255,.80)",
+        "text": "#111111",
+        "muted": "#4e4b45",
+        "accent": "#e53935",
+        "accent2": "#1d4ed8",
+        "accent3": "#f5c400",
+        "glow": "rgba(229,57,53,.15)",
+        "cloud_style": "Classic Word Cloud",
+        "font": "Montserrat",
+        "cloud_x": 52,
+        "cloud_y": 55,
+    },
+    "Soft Power": {
+        "key": "soft",
+        "bg": "#eaded5",
+        "panel": "rgba(255, 247, 241, .76)",
+        "text": "#2f2928",
+        "muted": "#776a67",
+        "accent": "#b04e6f",
+        "accent2": "#383130",
+        "accent3": "#d5a6bd",
+        "glow": "rgba(176,78,111,.20)",
+        "cloud_style": "Bubble Cloud",
+        "font": "Playfair Display",
+        "cloud_x": 45,
+        "cloud_y": 57,
     },
     "System Map": {
         "key": "map",
@@ -78,18 +156,49 @@ THEMES = {
         "muted": "#9fb0a8",
         "accent": "#7bd7a8",
         "accent2": "#7aa4ff",
+        "accent3": "#f2e682",
         "glow": "rgba(123,215,168,.24)",
+        "cloud_style": "Network Cloud",
+        "font": "Inter",
+        "cloud_x": 49,
+        "cloud_y": 52,
     },
-    "Feminist Soft Power": {
-        "key": "soft",
-        "bg": "#eaded5",
-        "panel": "rgba(255, 247, 241, .76)",
-        "text": "#2f2928",
-        "muted": "#776a67",
-        "accent": "#b04e6f",
-        "accent2": "#383130",
-        "glow": "rgba(176,78,111,.20)",
+    "Newspaper / Print": {
+        "key": "print",
+        "bg": "#f5f0e6",
+        "panel": "rgba(255,255,255,.72)",
+        "text": "#16120d",
+        "muted": "#695f53",
+        "accent": "#b91c1c",
+        "accent2": "#111111",
+        "accent3": "#d7c7ad",
+        "glow": "rgba(185,28,28,.14)",
+        "cloud_style": "Magazine Cloud",
+        "font": "Georgia",
+        "cloud_x": 50,
+        "cloud_y": 55,
     },
+    "Festival / Color Splash": {
+        "key": "festival",
+        "bg": "#11131f",
+        "panel": "rgba(20,20,35,.68)",
+        "text": "#fffaf0",
+        "muted": "#e7d7ff",
+        "accent": "#ff4d6d",
+        "accent2": "#ffd166",
+        "accent3": "#06d6a0",
+        "glow": "rgba(255,209,102,.32)",
+        "cloud_style": "Color Burst",
+        "font": "Bebas Neue",
+        "cloud_x": 54,
+        "cloud_y": 55,
+    },
+}
+
+LEGACY_LAYOUT_MAP = {
+    "Neon Pulse": "Neon Pop",
+    "Clean Studio": "Bauhaus Clean",
+    "Feminist Soft Power": "Soft Power",
 }
 
 PRESET_SCENES = ["Intro", "Diskussion", "Q&A", "Deep Dive", "Fazit"]
@@ -436,6 +545,48 @@ def keyword_position(word: str, idx: int) -> tuple[int, int]:
     return max(7, min(78, x)), max(18, min(74, y))
 
 
+def cloud_style_position(style: str, word: str, idx: int, total: int) -> tuple[float, float, float]:
+    digest = hashlib.md5(f"{style}-{word}".encode("utf-8")).hexdigest()
+    seed = int(digest[:8], 16)
+    total = max(1, total)
+    angle = (idx / total) * math.tau + (seed % 40) / 40
+    if style == "Vertical Cloud":
+        x = 45 + ((idx % 3) - 1) * 16 + (seed % 9) - 4
+        y = 10 + (idx / max(1, total - 1)) * 78
+        rotation = 90 if idx % 5 == 0 else 0
+    elif style == "Orbital Cloud":
+        radius = 16 + (idx % 4) * 9
+        x = 50 + math.cos(angle) * radius
+        y = 50 + math.sin(angle) * radius * 0.78
+        rotation = 0
+    elif style == "Network Cloud":
+        radius = 12 + (idx % 5) * 8
+        x = 50 + math.cos(angle) * radius
+        y = 50 + math.sin(angle * 1.17) * radius
+        rotation = 0
+    elif style == "Magazine Cloud":
+        x, y = keyword_position(word, idx)
+        rotation = [-4, 0, 0, 3, -2][idx % 5]
+    elif style == "Minimal Cloud":
+        x = 28 + (idx % 2) * 34 + (seed % 5)
+        y = 30 + (idx // 2) * 13
+        rotation = 0
+    elif style == "Color Burst":
+        x, y = keyword_position(word, idx)
+        rotation = [0, 0, 90, -7, 5][idx % 5]
+    elif style == "Bubble Cloud":
+        x, y = keyword_position(word, idx)
+        rotation = 0
+    else:
+        x, y = keyword_position(word, idx)
+        rotation = 90 if idx % 9 == 0 else 0
+    return max(7, min(93, x)), max(8, min(92, y)), rotation
+
+
+def font_stack(name: str) -> str:
+    return FONT_PRESETS.get(name, FONT_PRESETS["System Sans"])
+
+
 # ---------------------------------------------------------------------------
 # State Management
 # ---------------------------------------------------------------------------
@@ -457,7 +608,10 @@ def init_state() -> None:
         "countdown_remaining": 10 * 60,
         "countdown_running": False,
         "countdown_started_at": None,
+        "show_live_since": True,
         "layout": "Editorial Dark",
+        "cloud_style": "Magazine Cloud",
+        "cloud_style_locked": False,
         "aspect": DEFAULT_ASPECT,
         "show_topic": True,
         "show_cloud": True,
@@ -472,17 +626,33 @@ def init_state() -> None:
         "freeze_keywords": False,
         "focus_mode": False,
         "clear_overlay": False,
-        "bg_dim": 45,
-        "bg_blur": 3,
+        "bg_dim": 35,
+        "bg_blur": 0,
+        "bg_brightness": 100,
         "keyword_size": 100,
         "keyword_density": 80,
         "animation_intensity": 55,
+        "cloud_pos_x": 45,
+        "cloud_pos_y": 55,
         "cloud_width": 68,
         "cloud_height": 66,
+        "cloud_tilt": 0,
         "topic_text_size": 100,
         "highlight_text_size": 100,
         "countdown_text_size": 100,
         "clock_text_size": 100,
+        "topic_font_family": "Playfair Display",
+        "topic_font_weight": 850,
+        "topic_letter_spacing": 0,
+        "topic_text_transform": "normal",
+        "keyword_font_family": "Inter",
+        "keyword_font_weight": 760,
+        "keyword_random_weight": False,
+        "highlight_font_family": "Playfair Display",
+        "highlight_font_weight": 900,
+        "highlight_letter_spacing": 0,
+        "countdown_font_family": "Inter",
+        "countdown_font_weight": 850,
         "overlay_opacity": 100,
         "transition_speed": 55,
         "bg_opacity": 100,
@@ -500,10 +670,18 @@ def init_state() -> None:
         "custom_blacklist_text": "",
         "custom_whitelist_text": "",
         "scenes": {},
+        "last_active_scene": "",
+        "persist_loaded": False,
+        "browser_id": "",
+        "backup_import_text": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+    if st.session_state.layout in LEGACY_LAYOUT_MAP:
+        st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
+    if "bg_brightness" not in st.session_state:
+        st.session_state.bg_brightness = max(20, 120 - st.session_state.get("bg_dim", 35))
     if not st.session_state.scenes:
         st.session_state.scenes = build_default_scenes()
 
@@ -515,6 +693,7 @@ def build_default_scenes() -> dict[str, dict[str, Any]]:
         "show_highlight": True,
         "show_countdown": False,
         "show_clock": True,
+        "show_live_since": True,
         "show_background": True,
         "show_animations": True,
         "show_safe_zones": False,
@@ -524,24 +703,28 @@ def build_default_scenes() -> dict[str, dict[str, Any]]:
         "clear_overlay": False,
     }
     return {
-        "Intro": {**base, "layout": "Editorial Dark", "topic": "Willkommen im Live", "show_countdown": True, "animation_intensity": 35},
-        "Diskussion": {**base, "layout": "Clean Studio", "topic": "Diskussion", "cloud_width": 62, "keyword_density": 70},
-        "Q&A": {**base, "layout": "Neon Pulse", "topic": "Q&A", "show_countdown": True, "animation_intensity": 68},
-        "Deep Dive": {**base, "layout": "System Map", "topic": "Deep Dive", "focus_mode": False, "cloud_width": 74},
-        "Fazit": {**base, "layout": "Feminist Soft Power", "topic": "Fazit", "focus_mode": True, "keyword_density": 45},
+        "Intro": {**base, "layout": "Editorial Dark", "cloud_style": "Magazine Cloud", "topic": "Willkommen im Live", "show_countdown": True, "animation_intensity": 35},
+        "Diskussion": {**base, "layout": "Bauhaus Clean", "cloud_style": "Classic Word Cloud", "topic": "Diskussion", "cloud_width": 62, "keyword_density": 70},
+        "Q&A": {**base, "layout": "Neon Pop", "cloud_style": "Color Burst", "topic": "Q&A", "show_countdown": True, "animation_intensity": 68},
+        "Deep Dive": {**base, "layout": "System Map", "cloud_style": "Network Cloud", "topic": "Deep Dive", "focus_mode": False, "cloud_width": 74},
+        "Fazit": {**base, "layout": "Soft Power", "cloud_style": "Minimal Cloud", "topic": "Fazit", "focus_mode": True, "keyword_density": 45},
     }
 
 
 def snapshot_scene() -> dict[str, Any]:
     keys = [
-        "layout", "active_image_id", "show_topic", "show_cloud", "show_highlight", "show_countdown",
+        "layout", "cloud_style", "cloud_style_locked", "active_image_id", "show_topic", "show_cloud", "show_highlight", "show_countdown",
         "show_clock", "show_background", "show_animations", "show_safe_zones", "show_overlay_frame",
+        "show_live_since",
         "minimal_mode", "topic", "highlight_word", "manual_cloud_words_text", "manual_word_size",
         "manual_words_emphasis", "countdown_title", "countdown_total",
-        "countdown_remaining", "countdown_running", "bg_dim", "bg_blur", "bg_opacity", "bg_zoom",
+        "countdown_remaining", "countdown_running", "bg_dim", "bg_blur", "bg_brightness", "bg_opacity", "bg_zoom",
         "bg_pos_x", "bg_pos_y", "bg_fit", "keyword_size", "keyword_density", "animation_intensity",
-        "cloud_width", "cloud_height", "topic_text_size", "highlight_text_size", "countdown_text_size",
-        "clock_text_size", "overlay_opacity", "transition_speed",
+        "cloud_pos_x", "cloud_pos_y", "cloud_width", "cloud_height", "cloud_tilt", "topic_text_size",
+        "highlight_text_size", "countdown_text_size", "clock_text_size", "topic_font_family", "topic_font_weight",
+        "topic_letter_spacing", "topic_text_transform", "keyword_font_family", "keyword_font_weight",
+        "keyword_random_weight", "highlight_font_family", "highlight_font_weight", "highlight_letter_spacing",
+        "countdown_font_family", "countdown_font_weight", "overlay_opacity", "transition_speed",
         "focus_mode", "clear_overlay",
     ]
     return {key: st.session_state.get(key) for key in keys}
@@ -551,8 +734,103 @@ def apply_scene(scene: dict[str, Any]) -> None:
     for key, value in scene.items():
         if key in st.session_state:
             st.session_state[key] = value
+    if st.session_state.layout in LEGACY_LAYOUT_MAP:
+        st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
     st.session_state.topic_draft = st.session_state.topic
     st.session_state.highlight_draft = st.session_state.highlight_word
+
+
+def persistent_payload() -> dict[str, Any]:
+    payload = snapshot_scene()
+    payload.update(
+        {
+            "version": 2,
+            "browser_id": st.session_state.browser_id or str(uuid.uuid4()),
+            "images": st.session_state.images,
+            "active_image_id": st.session_state.active_image_id,
+            "scenes": st.session_state.scenes,
+            "custom_blacklist_text": st.session_state.custom_blacklist_text,
+            "custom_whitelist_text": st.session_state.custom_whitelist_text,
+            "last_active_scene": st.session_state.last_active_scene,
+        }
+    )
+    return payload
+
+
+def apply_persistent_payload(payload: dict[str, Any]) -> None:
+    if not isinstance(payload, dict):
+        return
+    allowed = set(snapshot_scene()) | {
+        "browser_id",
+        "images",
+        "active_image_id",
+        "scenes",
+        "custom_blacklist_text",
+        "custom_whitelist_text",
+        "last_active_scene",
+    }
+    for key, value in payload.items():
+        if key in allowed:
+            st.session_state[key] = value
+    if st.session_state.layout in LEGACY_LAYOUT_MAP:
+        st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
+    st.session_state.topic_draft = st.session_state.topic
+    st.session_state.highlight_draft = st.session_state.highlight_word
+
+
+def load_persisted_state_once() -> None:
+    if st.session_state.persist_loaded:
+        return
+    loaded = None
+    if get_local_storage is not None:
+        try:
+            raw = get_local_storage(LOCAL_STORAGE_KEY, component_key="persist_load")
+            if raw is None and not SERVER_STATE_FILE.exists():
+                if not st.session_state.browser_id:
+                    st.session_state.browser_id = str(uuid.uuid4())
+                return
+            if raw:
+                loaded = json.loads(raw)
+        except Exception:
+            loaded = None
+    if loaded is None and SERVER_STATE_FILE.exists():
+        try:
+            loaded = json.loads(SERVER_STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            loaded = None
+    if loaded:
+        apply_persistent_payload(loaded)
+    if not st.session_state.browser_id:
+        st.session_state.browser_id = str(uuid.uuid4())
+    st.session_state.persist_loaded = True
+
+
+def save_persisted_state(reason: str = "auto") -> None:
+    payload = persistent_payload()
+    data = json.dumps(payload, ensure_ascii=False)
+    try:
+        SERVER_STATE_FILE.write_text(data, encoding="utf-8")
+    except Exception:
+        pass
+    if streamlit_js_eval is not None:
+        digest = hashlib.sha1(data.encode("utf-8")).hexdigest()[:12]
+        js = f"localStorage.setItem({json.dumps(LOCAL_STORAGE_KEY)}, {json.dumps(data)})"
+        try:
+            streamlit_js_eval(js_expressions=js, key=f"persist_save_{reason}_{digest}")
+        except Exception:
+            pass
+
+
+def clear_persisted_state() -> None:
+    if streamlit_js_eval is not None:
+        streamlit_js_eval(
+            js_expressions=f"localStorage.removeItem({json.dumps(LOCAL_STORAGE_KEY)})",
+            key=f"persist_clear_{int(time.time())}",
+        )
+    try:
+        SERVER_STATE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def update_countdown() -> None:
@@ -565,9 +843,9 @@ def update_countdown() -> None:
 
 def format_duration(seconds: float | None) -> str:
     if not seconds:
-        return "00:00"
+        return "00:00:00"
     seconds = int(max(0, seconds))
-    return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}" if seconds >= 3600 else f"{seconds // 60:02d}:{seconds % 60:02d}"
+    return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
 
 
 # ---------------------------------------------------------------------------
@@ -730,12 +1008,25 @@ def css_for_streamlit() -> str:
 
 def render_overlay_html(state: dict[str, Any]) -> str:
     layout = state.get("layout", "Editorial Dark")
+    layout = LEGACY_LAYOUT_MAP.get(layout, layout)
     theme = THEMES.get(layout, THEMES["Editorial Dark"])
+    cloud_style = state.get("cloud_style") or theme.get("cloud_style", "Classic Word Cloud")
+    cloud_slug = {
+        "Bubble Cloud": "bubble",
+        "Magazine Cloud": "magazine",
+        "Network Cloud": "network",
+        "Color Burst": "color",
+        "Minimal Cloud": "minimal",
+        "Orbital Cloud": "orbital",
+        "Vertical Cloud": "vertical",
+    }.get(cloud_style, "classic")
     keywords = state.get("keywords", [])
     if state.get("minimal_mode"):
         keywords = keywords[:0]
     if state.get("focus_mode"):
         keywords = keywords[:3]
+    if cloud_style == "Minimal Cloud":
+        keywords = keywords[:10]
     density = max(4, min(len(keywords), int(MAX_KEYWORDS * state.get("keyword_density", 80) / 100)))
     keywords = keywords[:density]
     manual_words = [] if state.get("minimal_mode") else state.get("manual_cloud_words", [])
@@ -755,41 +1046,56 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     overlay_opacity = state.get("overlay_opacity", 100) / 100
     cloud_w = state.get("cloud_width", 68)
     cloud_h = state.get("cloud_height", 66)
+    cloud_x = state.get("cloud_pos_x", theme.get("cloud_x", 45))
+    cloud_y = state.get("cloud_pos_y", theme.get("cloud_y", 55))
+    cloud_tilt = state.get("cloud_tilt", 0)
     topic_size = state.get("topic_text_size", 100) / 100
     highlight_size = state.get("highlight_text_size", 100) / 100
     countdown_size = state.get("countdown_text_size", 100) / 100
     clock_size = state.get("clock_text_size", 100) / 100
     keyword_size = state.get("keyword_size", 100) / 100
     manual_size = state.get("manual_word_size", 130) / 100
+    topic_font = font_stack(state.get("topic_font_family", theme.get("font", "Inter")))
+    keyword_font = font_stack(state.get("keyword_font_family", "Inter"))
+    highlight_font = font_stack(state.get("highlight_font_family", theme.get("font", "Inter")))
+    countdown_font = font_stack(state.get("countdown_font_family", "Inter"))
+    topic_weight = int(state.get("topic_font_weight", 850))
+    keyword_weight = int(state.get("keyword_font_weight", 760))
+    highlight_weight = int(state.get("highlight_font_weight", 900))
+    countdown_weight = int(state.get("countdown_font_weight", 850))
+    topic_spacing = state.get("topic_letter_spacing", 0) / 100
+    highlight_spacing = state.get("highlight_letter_spacing", 0) / 100
+    topic_transform = state.get("topic_text_transform", "normal")
 
     keyword_nodes = []
     manual_set = set(manual_words)
     manual_nodes = []
     for i, word in enumerate(manual_words):
-        x, y = keyword_position(f"manual-{word}", i + 100)
+        x, y, rotation = cloud_style_position(cloud_style, f"manual-{word}", i + 100, max(1, len(manual_words) + len(keywords)))
         size = (1.45 - min(i, 5) * 0.08) * manual_size
         delay = (i % 5) * -0.9
         emph = " manual-emphasis" if state.get("manual_words_emphasis", True) else ""
         manual_nodes.append(
-            f'<span class="kw manual{emph}" style="--x:{x}%;--y:{y}%;--s:{size:.2f};--d:10.5s;--delay:{delay:.2f}s">{html.escape(word)}</span>'
+            f'<span class="kw manual{emph}" style="--x:{x}%;--y:{y}%;--s:{size:.2f};--r:{rotation:.1f}deg;--d:10.5s;--delay:{delay:.2f}s">{html.escape(word)}</span>'
         )
     for i, item in enumerate(keywords):
         if item["word"] in manual_set:
             continue
         word = html.escape(item["word"])
         size = item.get("size", 1) * keyword_size
-        x = min(80, max(5, item.get("x", 20) * cloud_w / 76))
-        y = min(76, max(18, item.get("y", 40) * cloud_h / 72))
+        x, y, rotation = cloud_style_position(cloud_style, item["word"], i, len(keywords))
         fresh = " fresh" if item.get("fresh") else ""
+        color_class = f" c{i % 6}"
+        weight = keyword_weight + ((i % 3) * 80 if state.get("keyword_random_weight") else 0)
         delay = (i % 8) * -0.7
         duration = 9 + (i % 5) * 1.7 / max(0.4, animation_scale)
         keyword_nodes.append(
-            f'<span class="kw{fresh}" style="--x:{x}%;--y:{y}%;--s:{size:.2f};--d:{duration:.2f}s;--delay:{delay:.2f}s">{word}</span>'
+            f'<span class="kw{fresh}{color_class}" style="--x:{x}%;--y:{y}%;--s:{size:.2f};--r:{rotation:.1f}deg;--w:{weight};--d:{duration:.2f}s;--delay:{delay:.2f}s">{word}</span>'
         )
 
     map_lines = ""
-    if theme["key"] == "map" and keywords:
-        points = [(item.get("x", 20), item.get("y", 40)) for item in keywords[:12]]
+    if cloud_style == "Network Cloud" or theme["key"] == "map":
+        points = [cloud_style_position(cloud_style, item["word"], idx, len(keywords))[:2] for idx, item in enumerate(keywords[:14])]
         line_nodes = []
         for idx, (x, y) in enumerate(points):
             if idx % 2 == 0:
@@ -803,15 +1109,18 @@ def render_overlay_html(state: dict[str, Any]) -> str:
             f"background-size:{state.get('bg_fit','cover')};"
             f"background-position:{state.get('bg_pos_x',50)}% {state.get('bg_pos_y',50)}%;"
             f"transform:scale({state.get('bg_zoom',100)/100:.3f});"
-            f"filter:blur({state.get('bg_blur',3)}px) brightness({max(20, 120 - state.get('bg_dim',45))}%);"
+            f"filter:blur({state.get('bg_blur',0)}px) brightness({state.get('bg_brightness',100)}%);"
             f"opacity:{state.get('bg_opacity',100)/100:.2f};"
         )
 
     hidden = state.get("clear_overlay")
     topic_html = "" if hidden or not state.get("show_topic") else f'<div class="topic">{topic}</div>'
     highlight_html = "" if hidden or not state.get("show_highlight") or not highlight else f'<div class="highlight">{highlight}</div>'
-    cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
-    clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock">LIVE {clock}</div>'
+    cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud cloud-{cloud_slug}">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
+    live_since = ""
+    if state.get("show_live_since") and state.get("live_started_at"):
+        live_since = f'<span>seit {time.strftime("%H:%M:%S", time.localtime(state.get("live_started_at")))}</span>'
+    clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock"><b>LIVE {clock}</b>{live_since}</div>'
     countdown_html = ""
     if not hidden and state.get("show_countdown"):
         countdown_html = (
@@ -840,6 +1149,11 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       --accent:{theme["accent"]}; --accent2:{theme["accent2"]}; --glow:{theme["glow"]};
       --opacity:{overlay_opacity}; --topicSize:{topic_size:.2f}; --highlightSize:{highlight_size:.2f};
       --countdownSize:{countdown_size:.2f}; --clockSize:{clock_size:.2f};
+      --accent3:{theme.get("accent3", theme["accent"])}; --cloudX:{cloud_x}%; --cloudY:{cloud_y}%;
+      --cloudW:{cloud_w}%; --cloudH:{cloud_h}%; --cloudTilt:{cloud_tilt}deg;
+      --topicFont:{topic_font}; --keywordFont:{keyword_font}; --highlightFont:{highlight_font}; --countdownFont:{countdown_font};
+      --topicWeight:{topic_weight}; --keywordWeight:{keyword_weight}; --highlightWeight:{highlight_weight}; --countdownWeight:{countdown_weight};
+      --topicSpacing:{topic_spacing:.2f}em; --highlightSpacing:{highlight_spacing:.2f}em; --topicTransform:{topic_transform};
     }}
     * {{ box-sizing:border-box; }}
     body {{
@@ -853,6 +1167,15 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       background: var(--bg); opacity:var(--opacity); border-radius:4px; isolation:isolate;
       box-shadow:0 24px 70px rgba(0,0,0,.42);
     }}
+    .stage::before {{
+      content:""; position:absolute; inset:0; z-index:-3; pointer-events:none;
+      background: transparent;
+    }}
+    .layout-neon::before {{ background:radial-gradient(circle at 72% 22%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 26%), radial-gradient(circle at 15% 78%, color-mix(in srgb, var(--accent2) 22%, transparent), transparent 30%); }}
+    .layout-candy::before {{ background:linear-gradient(135deg, #ff8cc6 0%, #ffb347 35%, #fff176 62%, #55e6d6 100%); opacity:.86; }}
+    .layout-bauhaus::before {{ background:linear-gradient(90deg, transparent 0 62%, color-mix(in srgb, var(--accent2) 18%, transparent) 62%), radial-gradient(circle at 84% 18%, var(--accent3) 0 8%, transparent 8%), linear-gradient(135deg, transparent 0 72%, var(--accent) 72%); opacity:.55; }}
+    .layout-print::before {{ background:repeating-linear-gradient(0deg, rgba(0,0,0,.025) 0 1px, transparent 1px 7px); }}
+    .layout-festival::before {{ background:radial-gradient(circle at 18% 18%, var(--accent) 0 8%, transparent 8%), radial-gradient(circle at 78% 22%, var(--accent2) 0 12%, transparent 12%), radial-gradient(circle at 84% 76%, var(--accent3) 0 10%, transparent 10%); opacity:.32; }}
     .stage.framed {{ outline:1px solid color-mix(in srgb, var(--accent) 42%, transparent); }}
     .bg-image {{ position:absolute; inset:-5%; background-repeat:no-repeat; z-index:-4; {bg_style} }}
     .readability {{
@@ -867,20 +1190,24 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .grain {{ position:absolute; inset:0; z-index:-2; background-image:linear-gradient(115deg, transparent, rgba(255,255,255,.035), transparent); opacity:.55; }}
     .topic {{
       position:absolute; top:7%; left:7%; width:68%; font-weight:850; line-height:.98;
-      font-size:calc(clamp(36px, 7.4vw, 74px) * var(--topicSize)); letter-spacing:0;
+      font-family:var(--topicFont); font-weight:var(--topicWeight);
+      font-size:calc(clamp(36px, 7.4vw, 74px) * var(--topicSize)); letter-spacing:var(--topicSpacing); text-transform:var(--topicTransform);
       text-wrap:balance; text-shadow:0 8px 28px rgba(0,0,0,.38);
     }}
     .topic::after {{ content:""; display:block; width:72px; height:3px; margin-top:18px; background:var(--accent); border-radius:3px; box-shadow:0 0 24px var(--glow); }}
     .highlight {{
       position:absolute; left:8%; top:36%; max-width:62%; padding:.18em .32em .26em;
-      font-size:calc(clamp(42px, 9vw, 96px) * var(--highlightSize)); font-weight:900; line-height:.9; color:var(--text);
+      font-family:var(--highlightFont); font-size:calc(clamp(42px, 9vw, 96px) * var(--highlightSize)); font-weight:var(--highlightWeight); letter-spacing:var(--highlightSpacing); line-height:.9; color:var(--text);
       background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
       border-left:4px solid var(--accent); text-shadow:0 0 30px var(--glow), 0 12px 28px rgba(0,0,0,.32);
     }}
-    .cloud {{ position:absolute; inset:18% 25% 12% 5%; }}
+    .cloud {{
+      position:absolute; left:var(--cloudX); top:var(--cloudY); width:var(--cloudW); height:var(--cloudH);
+      transform:translate(-50%,-50%) rotate(var(--cloudTilt)); transform-origin:center; z-index:2;
+    }}
     .kw {{
-      position:absolute; left:var(--x); top:var(--y); transform:translate(-50%,-50%) scale(var(--s));
-      font-weight:760; line-height:1; padding:.18rem .38rem; border-radius:7px;
+      position:absolute; left:var(--x); top:var(--y); transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s));
+      font-family:var(--keywordFont); font-weight:var(--w, var(--keywordWeight)); line-height:1; padding:.18rem .38rem; border-radius:7px;
       color:var(--text); background:color-mix(in srgb, var(--panel) 80%, transparent);
       border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);
       box-shadow:0 10px 26px rgba(0,0,0,.18), 0 0 24px var(--glow);
@@ -888,6 +1215,11 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .animated .kw {{ animation: floaty var(--d) ease-in-out infinite; animation-delay:var(--delay); }}
     .kw.fresh {{ color:var(--accent); box-shadow:0 0 38px var(--glow), 0 12px 30px rgba(0,0,0,.24); }}
+    .cloud-bubble .kw, .cloud-Bubble .kw {{ border-radius:999px; padding:.38rem .62rem; background:color-mix(in srgb, var(--panel) 70%, transparent); backdrop-filter:blur(8px); }}
+    .cloud-magazine .kw {{ background:transparent; border-color:transparent; box-shadow:none; font-family:var(--topicFont); }}
+    .cloud-network .kw {{ border-radius:999px; background:rgba(13,20,20,.68); }}
+    .cloud-color .kw.c0 {{ color:var(--accent); }} .cloud-color .kw.c1 {{ color:var(--accent2); }} .cloud-color .kw.c2 {{ color:var(--accent3); }} .cloud-color .kw.c3 {{ color:#ffffff; }} .cloud-color .kw.c4 {{ color:#ffd166; }} .cloud-color .kw.c5 {{ color:#2dfcff; }}
+    .cloud-minimal .kw {{ background:transparent; border:0; box-shadow:none; }}
     .kw.manual {{
       z-index:4; color:var(--accent); background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 24%, var(--panel)), color-mix(in srgb, var(--accent2) 18%, var(--panel)));
       border-color:color-mix(in srgb, var(--accent) 58%, transparent); text-transform:uppercase; letter-spacing:0;
@@ -901,8 +1233,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       padding:14px 16px; border:1px solid color-mix(in srgb, var(--accent) 32%, transparent);
       background:var(--panel); backdrop-filter:blur(14px); border-radius:8px;
     }}
-    .countdown b {{ display:block; font-size:calc(14px * var(--countdownSize)); color:var(--muted); margin-bottom:2px; }}
-    .countdown span {{ display:block; font-size:calc(32px * var(--countdownSize)); font-weight:850; line-height:1; }}
+    .countdown b {{ display:block; font-family:var(--countdownFont); font-size:calc(14px * var(--countdownSize)); color:var(--muted); margin-bottom:2px; }}
+    .countdown span {{ display:block; font-family:var(--countdownFont); font-size:calc(32px * var(--countdownSize)); font-weight:var(--countdownWeight); line-height:1; }}
     .ring {{
       width:54px; height:54px; border-radius:50%;
       background:conic-gradient(var(--accent) calc(var(--pct) * 1%), rgba(255,255,255,.13) 0);
@@ -911,14 +1243,15 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .ring::after {{ content:""; position:absolute; inset:7px; border-radius:50%; background:var(--bg); }}
     .live-clock {{
       position:absolute; top:7%; right:8%; padding:9px 12px; border-radius:999px;
-      font-weight:800; font-size:calc(14px * var(--clockSize)); color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
+      display:flex; flex-direction:column; gap:1px; font-family:var(--countdownFont); font-weight:800; font-size:calc(14px * var(--clockSize)); color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
     }}
+    .live-clock span {{ font-size:.76em; color:var(--muted); }}
     .safe {{ position:absolute; display:grid; place-items:center; color:rgba(255,255,255,.72); border:1px dashed rgba(255,255,255,.38); background:rgba(255,255,255,.06); font-size:13px; font-weight:800; text-transform:uppercase; }}
     .safe.guest {{ top:0; right:0; width:28%; height:100%; }}
     .safe.chat {{ left:0; right:0; bottom:0; height:18%; }}
     @keyframes floaty {{
-      0%,100% {{ transform:translate(-50%,-50%) scale(var(--s)); opacity:.82; }}
-      50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) scale(calc(var(--s) * 1.025)); opacity:1; }}
+      0%,100% {{ transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s)); opacity:.82; }}
+      50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity:1; }}
     }}
     @media (max-width: 740px) {{
       .stage-wrap {{ padding:4px; }}
@@ -949,6 +1282,9 @@ def render_overlay_html(state: dict[str, Any]) -> str:
 
 def current_overlay_state() -> dict[str, Any]:
     state = snapshot_scene()
+    rt = live_runtime()
+    with rt.lock:
+        live_started_at = rt.started_at
     state.update(
         {
             "keywords": st.session_state.keywords,
@@ -958,6 +1294,7 @@ def current_overlay_state() -> dict[str, Any]:
             "aspect": st.session_state.aspect,
             "filtered_total": st.session_state.filtered_total,
             "filtered_top": st.session_state.filtered_top,
+            "live_started_at": live_started_at,
         }
     )
     if st.session_state.auto_highlight and not st.session_state.highlight_word and st.session_state.keywords:
@@ -1005,8 +1342,9 @@ def render_connection_panel() -> None:
         status = rt.status
         detail = rt.status_detail
         started_at = rt.started_at
-    live_for = format_duration(time.time() - started_at) if started_at and status == "connected" else "00:00"
-    st.markdown(f'<div class="status-pill"><b>Status:</b> {html.escape(status)}<br>{html.escape(detail)}<br><b>Live seit:</b> {live_for}</div>', unsafe_allow_html=True)
+    live_for = format_duration(time.time() - started_at) if started_at and status == "connected" else "00:00:00"
+    live_clock_since = time.strftime("%H:%M:%S", time.localtime(started_at)) if started_at else "--:--:--"
+    st.markdown(f'<div class="status-pill"><b>Status:</b> {html.escape(status)}<br>{html.escape(detail)}<br><b>Laufzeit:</b> {live_for}<br><b>Live seit:</b> {live_clock_since}</div>', unsafe_allow_html=True)
 
 
 def render_toggle_panel() -> None:
@@ -1017,6 +1355,7 @@ def render_toggle_panel() -> None:
         ("show_highlight", "Highlight-Wort anzeigen"),
         ("show_countdown", "Countdown anzeigen"),
         ("show_clock", "Live-Uhr anzeigen"),
+        ("show_live_since", "Live seit Uhrzeit anzeigen"),
         ("show_background", "Hintergrundbild anzeigen"),
         ("show_animations", "Animationen anzeigen"),
         ("show_safe_zones", "Safe-Zones anzeigen"),
@@ -1089,6 +1428,12 @@ def render_layout_panel() -> None:
         active = "✓ " if st.session_state.layout == name else ""
         if st.button(f"{active}{name}", key=f"layout_{theme['key']}", use_container_width=True):
             st.session_state.layout = name
+            st.session_state.topic_font_family = theme.get("font", st.session_state.topic_font_family)
+            st.session_state.highlight_font_family = theme.get("font", st.session_state.highlight_font_family)
+            if not st.session_state.cloud_style_locked:
+                st.session_state.cloud_style = theme.get("cloud_style", st.session_state.cloud_style)
+                st.session_state.cloud_pos_x = theme.get("cloud_x", st.session_state.cloud_pos_x)
+                st.session_state.cloud_pos_y = theme.get("cloud_y", st.session_state.cloud_pos_y)
 
 
 def render_image_panel() -> None:
@@ -1097,9 +1442,12 @@ def render_image_panel() -> None:
     if uploads:
         known = {item["id"] for item in st.session_state.images}
         for up in uploads:
+            if len(up.getvalue()) > 5 * 1024 * 1024:
+                st.warning(f"{up.name} ist groesser als 5 MB. Bitte kleiner exportieren, damit Browser-Speicherung stabil bleibt.")
+                continue
             image_id = hashlib.sha1(up.getvalue()).hexdigest()[:12]
             if image_id not in known:
-                st.session_state.images.append({"id": image_id, "name": up.name, "data_url": image_to_data_url(up)})
+                st.session_state.images.append({"id": image_id, "name": up.name, "title": up.name, "data_url": image_to_data_url(up)})
                 known.add(image_id)
                 if not st.session_state.active_image_id:
                     st.session_state.active_image_id = image_id
@@ -1108,12 +1456,15 @@ def render_image_panel() -> None:
         for item in list(st.session_state.images):
             cols = st.columns([1, 1, 1])
             cols[0].image(item["data_url"], use_container_width=True)
+            new_title = cols[0].text_input("Titel", value=item.get("title", item.get("name", "Bild")), key=f"img_title_{item['id']}", label_visibility="collapsed")
+            item["title"] = new_title
             if cols[1].button(("Aktiv" if item["id"] == st.session_state.active_image_id else "Aktivieren"), key=f"img_on_{item['id']}", use_container_width=True):
                 st.session_state.active_image_id = item["id"]
+                st.session_state.show_background = True
             if cols[2].button("Löschen", key=f"img_del_{item['id']}", use_container_width=True):
                 st.session_state.images = [img for img in st.session_state.images if img["id"] != item["id"]]
                 if st.session_state.active_image_id == item["id"]:
-                    st.session_state.active_image_id = st.session_state.images[0]["id"] if st.session_state.images else None
+                    st.session_state.active_image_id = None
     st.caption("Ausblenden behaelt das aktive Bild in der Galerie. Abwaehlen entfernt nur die aktive Auswahl. Loeschen entfernt ein Bild aus der Session-Galerie.")
     c1, c2, c3 = st.columns(3)
     hide_label = "Bild einblenden" if not st.session_state.show_background else "Bild ausblenden"
@@ -1124,12 +1475,12 @@ def render_image_panel() -> None:
     if c3.button("Look optimieren", key="image_auto_optimize", use_container_width=True):
         st.session_state.bg_dim = 58
         st.session_state.bg_blur = 5
+        st.session_state.bg_brightness = 100
         st.session_state.bg_opacity = 88
         st.session_state.cloud_width = 62
         st.session_state.show_background = True
     st.selectbox("Bild-Fit", ["cover", "contain"], key="bg_fit")
-    brightness = st.slider("Helligkeit", 20, 120, value=120 - st.session_state.bg_dim, key="image_brightness")
-    st.session_state.bg_dim = 120 - brightness
+    st.slider("Helligkeit", 20, 140, key="bg_brightness")
     st.session_state.bg_blur = st.slider("Bild-Blur", 0, 18, value=st.session_state.bg_blur, key="image_bg_blur")
     st.session_state.bg_dim = st.slider("Overlay-Dunkelung Bild", 0, 90, value=st.session_state.bg_dim, key="image_bg_dim")
     st.session_state.bg_opacity = st.slider("Bild-Transparenz", 0, 100, value=st.session_state.bg_opacity, key="image_bg_opacity")
@@ -1141,12 +1492,42 @@ def render_image_panel() -> None:
 def render_scene_panel() -> None:
     section("Szenen")
     name = st.text_input("Neue Szene", value="Meine Szene")
-    if st.button("Aktuelle Einstellungen als Szene speichern", key="scene_save", use_container_width=True):
+    if st.button("Save Scene", key="scene_save", use_container_width=True):
         if name.strip():
             st.session_state.scenes[name.strip()] = snapshot_scene()
-    for scene_name, scene in st.session_state.scenes.items():
-        if st.button(scene_name, key=f"scene_{scene_name}", use_container_width=True):
+            st.session_state.last_active_scene = name.strip()
+    for scene_name, scene in list(st.session_state.scenes.items()):
+        cols = st.columns([1.2, .7, .7])
+        if cols[0].button(scene_name, key=f"scene_{scene_name}", use_container_width=True):
             apply_scene(scene)
+            st.session_state.last_active_scene = scene_name
+            if st.session_state.active_image_id and not any(img["id"] == st.session_state.active_image_id for img in st.session_state.images):
+                st.session_state.active_image_id = None
+        if cols[1].button("Überschr.", key=f"scene_over_{scene_name}", use_container_width=True):
+            st.session_state.scenes[scene_name] = snapshot_scene()
+        if cols[2].button("Dupl.", key=f"scene_dup_{scene_name}", use_container_width=True):
+            st.session_state.scenes[f"{scene_name} Kopie"] = dict(scene)
+        new_name = st.text_input("Umbenennen", value=scene_name, key=f"scene_rename_{scene_name}", label_visibility="collapsed")
+        r1, r2 = st.columns(2)
+        if r1.button("Name ändern", key=f"scene_rename_btn_{scene_name}", use_container_width=True) and new_name.strip() and new_name.strip() != scene_name:
+            st.session_state.scenes[new_name.strip()] = st.session_state.scenes.pop(scene_name)
+        if r2.button("Löschen", key=f"scene_delete_{scene_name}", use_container_width=True):
+            st.session_state.scenes.pop(scene_name, None)
+    st.download_button(
+        "Szenen exportieren",
+        data=json.dumps(st.session_state.scenes, ensure_ascii=False, indent=2),
+        file_name="ttliveregie_szenen.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+    import_file = st.file_uploader("Szenen importieren", type=["json"], key="scene_import_file")
+    if import_file and st.button("Szenen-Import anwenden", key="scene_import_apply", use_container_width=True):
+        try:
+            imported = json.loads(import_file.getvalue().decode("utf-8"))
+            if isinstance(imported, dict):
+                st.session_state.scenes.update(imported)
+        except Exception as exc:
+            st.error(f"Import fehlgeschlagen: {exc}")
 
 
 def render_quick_actions() -> None:
@@ -1196,21 +1577,44 @@ def apply_quick_action(action: str) -> None:
 
 
 def render_faders() -> None:
-    section("Visual Mixing")
-    st.slider("Hintergrund-Dunkelung", 0, 90, key="bg_dim")
-    st.slider("Blur", 0, 18, key="bg_blur")
-    st.slider("Keyword-Größe", 55, 160, key="keyword_size")
+    section("Cloud / Visual Mixing")
+    selected_style = st.selectbox("Cloud-Stil", CLOUD_STYLES, index=CLOUD_STYLES.index(st.session_state.cloud_style) if st.session_state.cloud_style in CLOUD_STYLES else 0)
+    if selected_style != st.session_state.cloud_style:
+        st.session_state.cloud_style = selected_style
+        st.session_state.cloud_style_locked = True
+    st.toggle("Cloud-Stil manuell fixieren", key="cloud_style_locked")
     st.slider("Keyword-Dichte", 10, 100, key="keyword_density")
     st.slider("Animationsintensität", 0, 100, key="animation_intensity")
+    st.slider("Cloud Position X", 0, 100, key="cloud_pos_x")
+    st.slider("Cloud Position Y", 0, 100, key="cloud_pos_y")
     st.slider("Cloud-Breite", 35, 90, key="cloud_width")
     st.slider("Cloud-Höhe", 35, 90, key="cloud_height")
-    st.slider("Textgröße Thema", 65, 145, key="topic_text_size")
-    st.slider("Textgröße Highlight", 60, 160, key="highlight_text_size")
-    st.slider("Textgröße Manuelle Wörter", 80, 210, key="manual_word_size")
-    st.slider("Textgröße Countdown", 70, 150, key="countdown_text_size")
-    st.slider("Textgröße Live-Uhr", 70, 150, key="clock_text_size")
+    st.slider("Cloud Rotation / Tilt", -10, 10, key="cloud_tilt")
     st.slider("Overlay-Transparenz", 20, 100, key="overlay_opacity")
     st.slider("Übergangsgeschwindigkeit", 10, 100, key="transition_speed")
+
+
+def render_typography_panel() -> None:
+    section("Typografie")
+    fonts = list(FONT_PRESETS)
+    transforms = ["normal", "uppercase"]
+    st.selectbox("Thema Font", fonts, key="topic_font_family")
+    st.slider("Thema Größe", 65, 180, key="topic_text_size")
+    st.slider("Thema Gewicht", 300, 950, key="topic_font_weight", step=50)
+    st.slider("Thema Letter Spacing", -8, 18, key="topic_letter_spacing")
+    st.selectbox("Thema Text Transform", transforms, key="topic_text_transform")
+    st.selectbox("Keyword Font", fonts, key="keyword_font_family")
+    st.slider("Keyword Basisgröße", 55, 180, key="keyword_size")
+    st.slider("Keyword Gewicht", 300, 950, key="keyword_font_weight", step=50)
+    st.toggle("Zufällige Keyword-Gewichtung", key="keyword_random_weight")
+    st.selectbox("Highlight Font", fonts, key="highlight_font_family")
+    st.slider("Highlight Größe", 60, 190, key="highlight_text_size")
+    st.slider("Highlight Gewicht", 300, 950, key="highlight_font_weight", step=50)
+    st.slider("Highlight Letter Spacing", -8, 18, key="highlight_letter_spacing")
+    st.selectbox("Countdown / Uhr Font", fonts, key="countdown_font_family")
+    st.slider("Countdown Größe", 70, 160, key="countdown_text_size")
+    st.slider("Live-Uhr Größe", 70, 160, key="clock_text_size")
+    st.slider("Countdown / Uhr Gewicht", 300, 950, key="countdown_font_weight", step=50)
 
 
 def safety_status() -> tuple[str, str]:
@@ -1256,24 +1660,56 @@ def render_safety_panel() -> None:
         compute_keywords(force=True)
 
 
+def render_persistence_panel() -> None:
+    section("Persistenz / Backup")
+    st.caption("Settings, Szenen und Bildbibliothek werden im Browser localStorage gesichert. Zusaetzlich wird lokal eine JSON-Datei als Fallback geschrieben.")
+    if st.button("Jetzt speichern", key="persist_save_btn", use_container_width=True):
+        save_persisted_state("manual")
+        st.success("Gespeichert.")
+    backup = json.dumps(persistent_payload(), ensure_ascii=False, indent=2)
+    st.download_button("Backup exportieren", backup, file_name="ttliveregie_backup.json", mime="application/json", use_container_width=True)
+    backup_file = st.file_uploader("Backup importieren", type=["json"], key="backup_import_file")
+    if backup_file and st.button("Backup importieren anwenden", key="backup_import_apply", use_container_width=True):
+        try:
+            payload = json.loads(backup_file.getvalue().decode("utf-8"))
+            apply_persistent_payload(payload)
+            save_persisted_state("import")
+            st.success("Backup importiert.")
+        except Exception as exc:
+            st.error(f"Backup-Import fehlgeschlagen: {exc}")
+    if st.button("Alles lokal löschen", key="persist_clear_btn", use_container_width=True):
+        clear_persisted_state()
+        st.warning("Lokaler Speicher wurde geleert. Bitte App neu laden.")
+
+
 def render_control_panel() -> None:
     st.markdown('<div class="regie-title">Live-Regiepult</div>', unsafe_allow_html=True)
-    tabs = st.tabs(["Live", "Look", "Szenen", "Safety"])
+    render_quick_actions()
+    if st.button("Save Scene", key="quick_save_scene_top", use_container_width=True):
+        scene_name = st.session_state.last_active_scene or f"Szene {len(st.session_state.scenes) + 1}"
+        st.session_state.scenes[scene_name] = snapshot_scene()
+        st.session_state.last_active_scene = scene_name
+    tabs = st.tabs(["Live", "Szenen", "Look", "Cloud", "Text", "Bilder", "Safety", "Backup"])
     with tabs[0]:
         render_connection_panel()
         render_toggle_panel()
         render_topic_panel()
         render_highlight_panel()
         render_countdown_panel()
-        render_quick_actions()
     with tabs[1]:
-        render_layout_panel()
-        render_image_panel()
-        render_faders()
-    with tabs[2]:
         render_scene_panel()
+    with tabs[2]:
+        render_layout_panel()
     with tabs[3]:
+        render_faders()
+    with tabs[4]:
+        render_typography_panel()
+    with tabs[5]:
+        render_image_panel()
+    with tabs[6]:
         render_safety_panel()
+    with tabs[7]:
+        render_persistence_panel()
 
 
 # ---------------------------------------------------------------------------
@@ -1283,6 +1719,7 @@ def render_control_panel() -> None:
 def main() -> None:
     st.set_page_config(page_title="TikTok Live Regiepult", page_icon="●", layout="wide", initial_sidebar_state="collapsed")
     init_state()
+    load_persisted_state_once()
     st.markdown(css_for_streamlit(), unsafe_allow_html=True)
     overlay_mode = st.query_params.get("overlay", "0") == "1"
     st_autorefresh(interval=2500 if overlay_mode else 4000, key="refresh")
@@ -1309,6 +1746,7 @@ def main() -> None:
             with top_cols[1]:
                 st.selectbox("Format", ["9:16", "16:9"], key="aspect", label_visibility="collapsed")
             render_stage(current_overlay_state(), height=900)
+    save_persisted_state("auto")
 
 
 if __name__ == "__main__":

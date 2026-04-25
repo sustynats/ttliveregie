@@ -70,6 +70,13 @@ AI_MODELS = [
     "gemini-2.0-flash-lite",
     "gemini-2.5-pro",
 ]
+AI_MODEL_LABELS = {
+    "gemini-2.5-flash": "Gemini 2.5 Flash",
+    "gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
+    "gemini-2.0-flash": "Gemini 2.0 Flash",
+    "gemini-2.0-flash-lite": "Gemini 2.0 Flash Lite",
+    "gemini-2.5-pro": "Gemini 2.5 Pro",
+}
 LEGACY_AI_MODEL_MAP = {
     "gemini-1.5-flash": "gemini-2.5-flash",
     "gemini-1.5-pro": "gemini-2.5-pro",
@@ -1249,6 +1256,18 @@ def css_for_streamlit() -> str:
     .stTextInput input::placeholder, .stTextArea textarea::placeholder {
         color: #8f98a4 !important;
     }
+    .stSelectbox [data-baseweb="select"] > div {
+        background: #0b0e12 !important;
+        border-color: rgba(255,255,255,.42) !important;
+        border-radius: 8px !important;
+    }
+    .stSelectbox [data-baseweb="select"] span,
+    .stSelectbox [data-baseweb="select"] div,
+    .stSelectbox [data-baseweb="select"] svg {
+        color: #fff6ea !important;
+        fill: #fff6ea !important;
+        opacity: 1 !important;
+    }
     .stTabs [data-baseweb="tab-list"] { gap: .25rem; }
     .stTabs [data-baseweb="tab"] { height: 2.2rem; padding: 0 .55rem; }
     .regie-title { font-size: 1.05rem; font-weight: 800; margin: .15rem 0 .65rem; }
@@ -2151,7 +2170,8 @@ def render_ai_panel() -> None:
         st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
     if st.session_state.get("ai_model") not in AI_MODELS:
         st.session_state.ai_model = "gemini-2.5-flash"
-    st.selectbox("Modell", AI_MODELS, key="ai_model")
+    st.selectbox("Modell", AI_MODELS, key="ai_model", format_func=lambda value: AI_MODEL_LABELS.get(value, value))
+    st.caption(f"Aktiv: {AI_MODEL_LABELS.get(st.session_state.ai_model, st.session_state.ai_model)}")
     st.slider("Maximale Antwortlänge", 300, 3000, key="ai_max_chars", step=100, help="Diese Zeichenbegrenzung wird der KI im Prompt mitgegeben und danach zusätzlich hart abgesichert.")
     st.session_state.ai_prompt = st.text_area("Prompt / Text für die Live-Prüfung", value=st.session_state.ai_prompt, height=130)
     c1, c2 = st.columns(2)

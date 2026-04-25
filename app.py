@@ -15,6 +15,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import regex
 import streamlit as st
@@ -210,6 +211,22 @@ LEGACY_LAYOUT_MAP = {
 }
 
 PRESET_SCENES = ["Intro", "Diskussion", "Q&A", "Deep Dive", "Fazit"]
+IFRAME_BLOCKED_DOMAINS = {
+    "zdf.de",
+    "www.zdf.de",
+    "zdfheute.de",
+    "www.zdfheute.de",
+    "ardmediathek.de",
+    "www.ardmediathek.de",
+    "tagesschau.de",
+    "www.tagesschau.de",
+    "spiegel.de",
+    "www.spiegel.de",
+    "zeit.de",
+    "www.zeit.de",
+    "sueddeutsche.de",
+    "www.sueddeutsche.de",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -682,6 +699,7 @@ def init_state() -> None:
         "video_muted": False,
         "show_website": False,
         "website_url": "",
+        "website_mode": "Auto",
         "website_x": 50,
         "website_y": 54,
         "website_width": 76,
@@ -766,7 +784,7 @@ def snapshot_scene() -> dict[str, Any]:
         "countdown_font_family", "countdown_font_weight", "overlay_opacity", "transition_speed",
         "focus_mode", "clear_overlay", "user_adjusted_cloud_position", "user_adjusted_image_look",
         "show_video", "video_url", "video_show_background", "video_x", "video_y", "video_width", "video_height",
-        "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_x", "website_y",
+        "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode", "website_x", "website_y",
         "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_model", "overlay_room_id",
     ]
     return {key: st.session_state.get(key) for key in keys}
@@ -936,6 +954,18 @@ def readable_url(value: str) -> str:
     if not re.match(r"^https?://", value, re.IGNORECASE):
         value = f"https://{value}"
     return value
+
+
+def url_host(value: str) -> str:
+    try:
+        return urlparse(readable_url(value)).netloc.lower()
+    except Exception:
+        return ""
+
+
+def is_known_iframe_blocked(value: str) -> bool:
+    host = url_host(value)
+    return host in IFRAME_BLOCKED_DOMAINS or any(host.endswith(f".{domain}") for domain in IFRAME_BLOCKED_DOMAINS)
 
 
 def brighten_stage() -> None:
@@ -1364,11 +1394,22 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         )
     website_html = ""
     if not hidden and state.get("show_website") and state.get("website_url"):
-        website_html = (
-            f'<iframe class="stage-web" src="{html.escape(state.get("website_url",""))}" '
-            f'style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;" '
-            f'allow="clipboard-read; clipboard-write; fullscreen; autoplay" referrerpolicy="no-referrer-when-downgrade"></iframe>'
-        )
+        website_url = readable_url(state.get("website_url", ""))
+        website_mode = state.get("website_mode", "Auto")
+        use_link_card = website_mode == "Link-Karte" or (website_mode == "Auto" and is_known_iframe_blocked(website_url))
+        host = html.escape(url_host(website_url) or website_url)
+        if use_link_card:
+            website_html = (
+                f'<div class="stage-web-card" style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;">'
+                f'<span>Website</span><b>{host}</b><p>Diese Seite blockiert Browser-Einbettung. Nutze die Link-Karte live oder eine offizielle Embed-/Video-URL.</p>'
+                f'<small>{html.escape(website_url)}</small></div>'
+            )
+        else:
+            website_html = (
+                f'<iframe class="stage-web" src="{html.escape(website_url)}" '
+                f'style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;" '
+                f'allow="clipboard-read; clipboard-write; fullscreen; autoplay" referrerpolicy="no-referrer-when-downgrade"></iframe>'
+            )
     ai_html = ""
     if not hidden and state.get("show_ai_card") and state.get("ai_response"):
         ai_html = f'<div class="ai-card"><b>KI-Check</b><p>{html.escape(state.get("ai_response",""))}</p></div>'
@@ -1489,7 +1530,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .safe {{ position:absolute; display:grid; place-items:center; color:rgba(255,255,255,.72); border:1px dashed rgba(255,255,255,.38); background:rgba(255,255,255,.06); font-size:13px; font-weight:800; text-transform:uppercase; }}
     .safe.guest {{ top:0; right:0; width:28%; height:100%; }}
     .safe.chat {{ left:0; right:0; bottom:0; height:18%; }}
-    .stage-video, .stage-web {{
+    .stage-video, .stage-web, .stage-web-card {{
       position:absolute; left:var(--vx, var(--wx)); top:var(--vy, var(--wy));
       width:var(--vw, var(--ww)); height:var(--vh, var(--wh));
       transform:translate(-50%,-50%); z-index:5; border-radius:8px;
@@ -1498,6 +1539,15 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .stage-video {{ opacity:var(--vo); }}
     .stage-web {{ z-index:4; }}
+    .stage-web-card {{
+      z-index:4; display:flex; flex-direction:column; justify-content:center; padding:28px;
+      background:linear-gradient(135deg, color-mix(in srgb, var(--panel) 92%, #0b0e12), rgba(0,0,0,.72));
+      color:var(--text); backdrop-filter:blur(14px);
+    }}
+    .stage-web-card span {{ color:var(--accent); font-size:13px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; }}
+    .stage-web-card b {{ margin-top:10px; font-size:clamp(30px, 5.6vw, 62px); line-height:.98; font-family:var(--topicFont); }}
+    .stage-web-card p {{ max-width:88%; color:var(--muted); font-size:clamp(16px, 2.3vw, 24px); line-height:1.25; }}
+    .stage-web-card small {{ color:color-mix(in srgb, var(--muted) 76%, transparent); word-break:break-all; font-size:13px; }}
     .ai-card {{
       position:absolute; left:7%; right:30%; bottom:20%; z-index:6; padding:18px 20px;
       border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
@@ -1959,10 +2009,13 @@ def render_media_panel() -> None:
         value=st.session_state.website_url,
         placeholder="https://example.com",
     )
-    st.caption("Viele Websites erlauben Einbettung im iframe nicht. Dann bleibt die Fläche leer; Embed-URLs funktionieren meist besser.")
+    st.caption("Viele Websites erlauben Einbettung im iframe nicht. Auto zeigt fuer bekannte Blocker eine saubere Link-Karte statt einer kaputten Browserflaeche.")
     st.toggle("Website anzeigen", key="show_website")
     if st.session_state.website_url:
         st.session_state.website_url = readable_url(st.session_state.website_url)
+    st.selectbox("Website Darstellung", ["Auto", "Interaktiver Browser", "Link-Karte"], key="website_mode")
+    if st.session_state.website_url and is_known_iframe_blocked(st.session_state.website_url):
+        st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Link-Karte oder eine offizielle Embed-/Video-URL.")
     st.slider("Website Position X", 0, 100, key="website_x")
     st.slider("Website Position Y", 0, 100, key="website_y")
     st.slider("Website Breite", 20, 100, key="website_width")

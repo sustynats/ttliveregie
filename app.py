@@ -22,6 +22,13 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 try:
+    import requests
+    from bs4 import BeautifulSoup
+except Exception:
+    requests = None
+    BeautifulSoup = None
+
+try:
     from streamlit_js_eval import get_local_storage, streamlit_js_eval
 except Exception:
     get_local_storage = None
@@ -700,6 +707,9 @@ def init_state() -> None:
         "show_website": False,
         "website_url": "",
         "website_mode": "Auto",
+        "website_preview_title": "",
+        "website_preview_text": "",
+        "website_preview_error": "",
         "website_x": 50,
         "website_y": 54,
         "website_width": 76,
@@ -784,7 +794,8 @@ def snapshot_scene() -> dict[str, Any]:
         "countdown_font_family", "countdown_font_weight", "overlay_opacity", "transition_speed",
         "focus_mode", "clear_overlay", "user_adjusted_cloud_position", "user_adjusted_image_look",
         "show_video", "video_url", "video_show_background", "video_x", "video_y", "video_width", "video_height",
-        "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode", "website_x", "website_y",
+        "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode",
+        "website_preview_title", "website_preview_text", "website_preview_error", "website_x", "website_y",
         "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_model", "overlay_room_id",
     ]
     return {key: st.session_state.get(key) for key in keys}
@@ -966,6 +977,50 @@ def url_host(value: str) -> str:
 def is_known_iframe_blocked(value: str) -> bool:
     host = url_host(value)
     return host in IFRAME_BLOCKED_DOMAINS or any(host.endswith(f".{domain}") for domain in IFRAME_BLOCKED_DOMAINS)
+
+
+def fetch_website_preview(url: str) -> tuple[bool, str, str]:
+    url = readable_url(url)
+    if not url:
+        return False, "", "Bitte erst eine Website-URL eingeben."
+    if requests is None or BeautifulSoup is None:
+        return False, "", "Website-Vorschau benoetigt requests und beautifulsoup4 aus requirements.txt."
+    try:
+        response = requests.get(
+            url,
+            timeout=8,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; TTLiveRegie/1.0; +https://ttliveregie.streamlit.app)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup(["script", "style", "noscript", "svg", "form", "nav", "footer"]):
+            tag.decompose()
+        title = ""
+        og_title = soup.find("meta", property="og:title")
+        if og_title and og_title.get("content"):
+            title = og_title.get("content", "").strip()
+        if not title and soup.title:
+            title = soup.title.get_text(" ", strip=True)
+        description = ""
+        og_desc = soup.find("meta", property="og:description") or soup.find("meta", attrs={"name": "description"})
+        if og_desc and og_desc.get("content"):
+            description = og_desc.get("content", "").strip()
+        paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all(["h1", "h2", "p", "li"])]
+        paragraphs = [text for text in paragraphs if len(text) > 45]
+        body = " ".join([description] + paragraphs)
+        body = re.sub(r"\s+", " ", body).strip()
+        if len(body) > 2600:
+            body = body[:2580].rsplit(" ", 1)[0] + " ..."
+        if not title:
+            title = url_host(url) or url
+        if not body:
+            body = "Die Seite wurde erreicht, aber es konnte kein gut lesbarer Text extrahiert werden."
+        return True, title[:180], body
+    except Exception as exc:
+        return False, "", f"Website-Vorschau fehlgeschlagen: {exc}"
 
 
 def brighten_stage() -> None:
@@ -1396,12 +1451,20 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     if not hidden and state.get("show_website") and state.get("website_url"):
         website_url = readable_url(state.get("website_url", ""))
         website_mode = state.get("website_mode", "Auto")
-        use_link_card = website_mode == "Link-Karte" or (website_mode == "Auto" and is_known_iframe_blocked(website_url))
+        has_preview = bool(state.get("website_preview_text"))
+        use_reader = website_mode == "Website-Vorschau" or (website_mode == "Auto" and is_known_iframe_blocked(website_url) and has_preview)
+        use_link_card = website_mode == "Link-Karte" or (website_mode == "Auto" and is_known_iframe_blocked(website_url) and not has_preview)
         host = html.escape(url_host(website_url) or website_url)
-        if use_link_card:
+        if use_reader:
+            website_html = (
+                f'<div class="stage-web-card reader" style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;">'
+                f'<span>Website-Vorschau · {host}</span><b>{html.escape(state.get("website_preview_title") or host)}</b>'
+                f'<p>{html.escape(state.get("website_preview_text", ""))}</p><small>{html.escape(website_url)}</small></div>'
+            )
+        elif use_link_card:
             website_html = (
                 f'<div class="stage-web-card" style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;">'
-                f'<span>Website</span><b>{host}</b><p>Diese Seite blockiert Browser-Einbettung. Nutze die Link-Karte live oder eine offizielle Embed-/Video-URL.</p>'
+                f'<span>Website</span><b>{host}</b><p>Viele normale Websites blockieren Browser-Einbettung. Lade eine Website-Vorschau oder nutze eine offizielle Embed-/Video-URL.</p>'
                 f'<small>{html.escape(website_url)}</small></div>'
             )
         else:
@@ -1548,6 +1611,9 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .stage-web-card b {{ margin-top:10px; font-size:clamp(30px, 5.6vw, 62px); line-height:.98; font-family:var(--topicFont); }}
     .stage-web-card p {{ max-width:88%; color:var(--muted); font-size:clamp(16px, 2.3vw, 24px); line-height:1.25; }}
     .stage-web-card small {{ color:color-mix(in srgb, var(--muted) 76%, transparent); word-break:break-all; font-size:13px; }}
+    .stage-web-card.reader {{ justify-content:flex-start; overflow:hidden; }}
+    .stage-web-card.reader b {{ font-size:clamp(24px, 3.7vw, 46px); }}
+    .stage-web-card.reader p {{ max-width:96%; font-size:clamp(15px, 1.8vw, 21px); line-height:1.38; overflow:hidden; }}
     .ai-card {{
       position:absolute; left:7%; right:30%; bottom:20%; z-index:6; padding:18px 20px;
       border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
@@ -2009,13 +2075,34 @@ def render_media_panel() -> None:
         value=st.session_state.website_url,
         placeholder="https://example.com",
     )
-    st.caption("Viele Websites erlauben Einbettung im iframe nicht. Auto zeigt fuer bekannte Blocker eine saubere Link-Karte statt einer kaputten Browserflaeche.")
+    st.caption("Normale Websites blockieren haeufig iframe-Einbettung. Nutze Embed-URLs fuer echte Interaktion oder lade eine serverseitige Vorschau.")
     st.toggle("Website anzeigen", key="show_website")
     if st.session_state.website_url:
         st.session_state.website_url = readable_url(st.session_state.website_url)
-    st.selectbox("Website Darstellung", ["Auto", "Interaktiver Browser", "Link-Karte"], key="website_mode")
+    st.selectbox("Website Darstellung", ["Auto", "Interaktiver Browser", "Website-Vorschau", "Link-Karte"], key="website_mode")
     if st.session_state.website_url and is_known_iframe_blocked(st.session_state.website_url):
-        st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Link-Karte oder eine offizielle Embed-/Video-URL.")
+        st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Website-Vorschau, Link-Karte oder eine offizielle Embed-/Video-URL.")
+    c1, c2 = st.columns(2)
+    if c1.button("Website-Vorschau laden", key="website_preview_load", use_container_width=True):
+        ok, title, text = fetch_website_preview(st.session_state.website_url)
+        if ok:
+            st.session_state.website_preview_title = title
+            st.session_state.website_preview_text = text
+            st.session_state.website_preview_error = ""
+            st.session_state.website_mode = "Website-Vorschau"
+            st.session_state.show_website = True
+            st.success("Vorschau geladen.")
+        else:
+            st.session_state.website_preview_error = text
+            st.error(text)
+    if c2.button("Website-Vorschau löschen", key="website_preview_clear", use_container_width=True):
+        st.session_state.website_preview_title = ""
+        st.session_state.website_preview_text = ""
+        st.session_state.website_preview_error = ""
+    if st.session_state.website_preview_error:
+        st.caption(st.session_state.website_preview_error)
+    if st.session_state.website_preview_text:
+        st.text_area("Geladene Vorschau", value=st.session_state.website_preview_text, height=110, disabled=True)
     st.slider("Website Position X", 0, 100, key="website_x")
     st.slider("Website Position Y", 0, 100, key="website_y")
     st.slider("Website Breite", 20, 100, key="website_width")

@@ -86,8 +86,8 @@ THEMES = {
         "glow": "rgba(214,177,94,.28)",
         "cloud_style": "Magazine Cloud",
         "font": "Playfair Display",
-        "cloud_x": 42,
-        "cloud_y": 54,
+        "cloud_x": 50,
+        "cloud_y": 50,
     },
     "Neon Pop": {
         "key": "neon",
@@ -102,7 +102,7 @@ THEMES = {
         "cloud_style": "Color Burst",
         "font": "Poppins",
         "cloud_x": 50,
-        "cloud_y": 52,
+        "cloud_y": 50,
     },
     "Candy Gradient": {
         "key": "candy",
@@ -117,7 +117,7 @@ THEMES = {
         "cloud_style": "Bubble Cloud",
         "font": "Poppins",
         "cloud_x": 50,
-        "cloud_y": 57,
+        "cloud_y": 50,
     },
     "Bauhaus Clean": {
         "key": "bauhaus",
@@ -131,8 +131,8 @@ THEMES = {
         "glow": "rgba(229,57,53,.15)",
         "cloud_style": "Classic Word Cloud",
         "font": "Montserrat",
-        "cloud_x": 52,
-        "cloud_y": 55,
+        "cloud_x": 50,
+        "cloud_y": 50,
     },
     "Soft Power": {
         "key": "soft",
@@ -146,8 +146,8 @@ THEMES = {
         "glow": "rgba(176,78,111,.20)",
         "cloud_style": "Bubble Cloud",
         "font": "Playfair Display",
-        "cloud_x": 45,
-        "cloud_y": 57,
+        "cloud_x": 50,
+        "cloud_y": 50,
     },
     "System Map": {
         "key": "map",
@@ -161,8 +161,8 @@ THEMES = {
         "glow": "rgba(123,215,168,.24)",
         "cloud_style": "Network Cloud",
         "font": "Inter",
-        "cloud_x": 49,
-        "cloud_y": 52,
+        "cloud_x": 50,
+        "cloud_y": 50,
     },
     "Newspaper / Print": {
         "key": "print",
@@ -177,7 +177,7 @@ THEMES = {
         "cloud_style": "Magazine Cloud",
         "font": "Georgia",
         "cloud_x": 50,
-        "cloud_y": 55,
+        "cloud_y": 50,
     },
     "Festival / Color Splash": {
         "key": "festival",
@@ -191,8 +191,8 @@ THEMES = {
         "glow": "rgba(255,209,102,.32)",
         "cloud_style": "Color Burst",
         "font": "Bebas Neue",
-        "cloud_x": 54,
-        "cloud_y": 55,
+        "cloud_x": 50,
+        "cloud_y": 50,
     },
 }
 
@@ -627,14 +627,14 @@ def init_state() -> None:
         "freeze_keywords": False,
         "focus_mode": False,
         "clear_overlay": False,
-        "bg_dim": 35,
+        "bg_dim": 25,
         "bg_blur": 0,
-        "bg_brightness": 100,
+        "bg_brightness": 115,
         "keyword_size": 100,
         "keyword_density": 80,
         "animation_intensity": 55,
-        "cloud_pos_x": 45,
-        "cloud_pos_y": 55,
+        "cloud_pos_x": 50,
+        "cloud_pos_y": 50,
         "cloud_width": 68,
         "cloud_height": 66,
         "cloud_tilt": 0,
@@ -675,6 +675,8 @@ def init_state() -> None:
         "persist_loaded": False,
         "browser_id": "",
         "backup_import_text": "",
+        "user_adjusted_cloud_position": False,
+        "user_adjusted_image_look": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -682,7 +684,13 @@ def init_state() -> None:
     if st.session_state.layout in LEGACY_LAYOUT_MAP:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
     if "bg_brightness" not in st.session_state:
-        st.session_state.bg_brightness = max(20, 120 - st.session_state.get("bg_dim", 35))
+        st.session_state.bg_brightness = 115
+    if not st.session_state.get("user_adjusted_cloud_position"):
+        st.session_state.cloud_pos_x = 50
+        st.session_state.cloud_pos_y = 50
+    if not st.session_state.get("user_adjusted_image_look") and st.session_state.get("bg_dim", 25) > 45:
+        st.session_state.bg_dim = 25
+        st.session_state.bg_brightness = max(115, st.session_state.get("bg_brightness", 115))
     if not st.session_state.scenes:
         st.session_state.scenes = build_default_scenes()
 
@@ -726,7 +734,7 @@ def snapshot_scene() -> dict[str, Any]:
         "topic_letter_spacing", "topic_text_transform", "keyword_font_family", "keyword_font_weight",
         "keyword_random_weight", "highlight_font_family", "highlight_font_weight", "highlight_letter_spacing",
         "countdown_font_family", "countdown_font_weight", "overlay_opacity", "transition_speed",
-        "focus_mode", "clear_overlay",
+        "focus_mode", "clear_overlay", "user_adjusted_cloud_position", "user_adjusted_image_look",
     ]
     return {key: st.session_state.get(key) for key in keys}
 
@@ -785,6 +793,12 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
             st.session_state[key] = value
     if st.session_state.layout in LEGACY_LAYOUT_MAP:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
+    if not payload.get("user_adjusted_cloud_position"):
+        st.session_state.cloud_pos_x = 50
+        st.session_state.cloud_pos_y = 50
+    if not payload.get("user_adjusted_image_look") and st.session_state.get("bg_dim", 25) > 45:
+        st.session_state.bg_dim = 25
+        st.session_state.bg_brightness = max(115, st.session_state.get("bg_brightness", 115))
     st.session_state.topic_draft = st.session_state.topic
     st.session_state.highlight_draft = st.session_state.highlight_word
 
@@ -1205,7 +1219,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud cloud-{cloud_slug}">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
     live_since = ""
     if state.get("show_live_since") and state.get("live_started_at"):
-        live_since = f'<span>seit {time.strftime("%H:%M:%S", time.localtime(state.get("live_started_at")))}</span>'
+        live_since = f'<span>seit {html.escape(state.get("live_duration", "00:00:00"))} · Start {time.strftime("%H:%M:%S", time.localtime(state.get("live_started_at")))}</span>'
     clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock"><b>LIVE {clock}</b>{live_since}</div>'
     countdown_html = ""
     if not hidden and state.get("show_countdown"):
@@ -1371,6 +1385,7 @@ def current_overlay_state() -> dict[str, Any]:
     rt = live_runtime()
     with rt.lock:
         live_started_at = rt.started_at
+    live_duration = format_duration(time.time() - live_started_at) if live_started_at else "00:00:00"
     state.update(
         {
             "keywords": st.session_state.keywords,
@@ -1381,6 +1396,7 @@ def current_overlay_state() -> dict[str, Any]:
             "filtered_total": st.session_state.filtered_total,
             "filtered_top": st.session_state.filtered_top,
             "live_started_at": live_started_at,
+            "live_duration": live_duration,
         }
     )
     if st.session_state.auto_highlight and not st.session_state.highlight_word and st.session_state.keywords:
@@ -1461,7 +1477,7 @@ def render_connection_panel() -> None:
         started_at = rt.started_at
     live_for = format_duration(time.time() - started_at) if started_at and status == "connected" else "00:00:00"
     live_clock_since = time.strftime("%H:%M:%S", time.localtime(started_at)) if started_at else "--:--:--"
-    st.markdown(f'<div class="status-pill"><b>Status:</b> {html.escape(status)}<br>{html.escape(detail)}<br><b>Laufzeit:</b> {live_for}<br><b>Live seit:</b> {live_clock_since}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="status-pill"><b>Status:</b> {html.escape(status)}<br>{html.escape(detail)}<br><b>Live seit:</b> {live_for}<br><b>Startzeit:</b> {live_clock_since}</div>', unsafe_allow_html=True)
 
 
 def render_toggle_panel() -> None:
@@ -1563,8 +1579,9 @@ def render_layout_panel() -> None:
             st.session_state.highlight_font_family = theme.get("font", st.session_state.highlight_font_family)
             if not st.session_state.cloud_style_locked:
                 st.session_state.cloud_style = theme.get("cloud_style", st.session_state.cloud_style)
-                st.session_state.cloud_pos_x = theme.get("cloud_x", st.session_state.cloud_pos_x)
-                st.session_state.cloud_pos_y = theme.get("cloud_y", st.session_state.cloud_pos_y)
+                if not st.session_state.user_adjusted_cloud_position:
+                    st.session_state.cloud_pos_x = 50
+                    st.session_state.cloud_pos_y = 50
 
 
 def render_image_panel() -> None:
@@ -1608,6 +1625,7 @@ def render_image_panel() -> None:
         st.session_state.bg_blur = 5
         st.session_state.bg_brightness = 100
         st.session_state.bg_opacity = 88
+        st.session_state.user_adjusted_image_look = True
         st.session_state.cloud_width = 62
         st.session_state.show_background = True
     st.selectbox("Bild-Fit", ["cover", "contain"], key="bg_fit")
@@ -1618,6 +1636,7 @@ def render_image_panel() -> None:
     st.session_state.bg_zoom = st.slider("Bild-Zoom", 80, 150, value=st.session_state.bg_zoom, key="image_bg_zoom")
     st.session_state.bg_pos_x = st.slider("Bild-Position X", 0, 100, value=st.session_state.bg_pos_x, key="image_bg_pos_x")
     st.session_state.bg_pos_y = st.slider("Bild-Position Y", 0, 100, value=st.session_state.bg_pos_y, key="image_bg_pos_y")
+    st.session_state.user_adjusted_image_look = True
 
 
 def render_scene_panel() -> None:
@@ -1718,6 +1737,8 @@ def render_faders() -> None:
     st.slider("Animationsintensität", 0, 100, key="animation_intensity")
     st.slider("Cloud Position X", 0, 100, key="cloud_pos_x")
     st.slider("Cloud Position Y", 0, 100, key="cloud_pos_y")
+    if st.session_state.cloud_pos_x != 50 or st.session_state.cloud_pos_y != 50:
+        st.session_state.user_adjusted_cloud_position = True
     st.slider("Cloud-Breite", 35, 90, key="cloud_width")
     st.slider("Cloud-Höhe", 35, 90, key="cloud_height")
     st.slider("Cloud Rotation / Tilt", -10, 10, key="cloud_tilt")

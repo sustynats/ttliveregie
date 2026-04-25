@@ -968,9 +968,28 @@ def css_for_streamlit() -> str:
         color: #ff5a61 !important;
     }
     .st-key-stage_panel_fixed {
-        position: sticky;
+        position: fixed;
         top: 1rem;
-        align-self: flex-start;
+        right: 1rem;
+        width: calc(72vw - 2rem);
+        height: calc(100vh - 2rem);
+        overflow: hidden;
+        z-index: 3;
+        background: #0d0f12;
+    }
+    .st-key-stage_panel_fixed iframe {
+        max-height: calc(100vh - 5.5rem);
+    }
+    @media (max-width: 900px) {
+        .st-key-stage_panel_fixed {
+            position: static;
+            width: auto;
+            height: auto;
+            overflow: visible;
+        }
+        .st-key-stage_panel_fixed iframe {
+            max-height: none;
+        }
     }
     div.stButton > button {
         width: 100%;

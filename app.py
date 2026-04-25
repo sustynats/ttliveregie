@@ -63,6 +63,18 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
+AI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-pro",
+]
+LEGACY_AI_MODEL_MAP = {
+    "gemini-1.5-flash": "gemini-2.5-flash",
+    "gemini-1.5-pro": "gemini-2.5-pro",
+    "gemini-pro": "gemini-2.5-flash",
+}
 
 FONT_PRESETS = {
     "System Sans": 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -718,6 +730,7 @@ def init_state() -> None:
         "ai_prompt": "",
         "ai_response": "",
         "ai_model": "gemini-2.5-flash",
+        "ai_max_chars": 1200,
         "overlay_room_id": "",
         "chat_window": deque(maxlen=5000),
         "keywords": [],
@@ -739,6 +752,8 @@ def init_state() -> None:
             st.session_state[key] = value
     if st.session_state.layout in LEGACY_LAYOUT_MAP:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
+    if st.session_state.get("ai_model") in LEGACY_AI_MODEL_MAP:
+        st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
     if "bg_brightness" not in st.session_state:
         st.session_state.bg_brightness = 115
     if not st.session_state.get("user_adjusted_cloud_position"):
@@ -797,6 +812,7 @@ def snapshot_scene() -> dict[str, Any]:
         "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode",
         "website_preview_title", "website_preview_text", "website_preview_error", "website_x", "website_y",
         "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_model", "overlay_room_id",
+        "ai_max_chars",
     ]
     return {key: st.session_state.get(key) for key in keys}
 
@@ -807,6 +823,10 @@ def apply_scene(scene: dict[str, Any]) -> None:
             st.session_state[key] = value
     if st.session_state.layout in LEGACY_LAYOUT_MAP:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
+    if st.session_state.get("ai_model") in LEGACY_AI_MODEL_MAP:
+        st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
+    if st.session_state.get("ai_model") not in AI_MODELS:
+        st.session_state.ai_model = "gemini-2.5-flash"
     st.session_state.topic_draft = st.session_state.topic
     st.session_state.highlight_draft = st.session_state.highlight_word
 
@@ -862,6 +882,10 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
             st.session_state[key] = value
     if st.session_state.layout in LEGACY_LAYOUT_MAP:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
+    if st.session_state.get("ai_model") in LEGACY_AI_MODEL_MAP:
+        st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
+    if st.session_state.get("ai_model") not in AI_MODELS:
+        st.session_state.ai_model = "gemini-2.5-flash"
     if not payload.get("user_adjusted_cloud_position"):
         st.session_state.cloud_pos_x = 50
         st.session_state.cloud_pos_y = 50
@@ -1054,6 +1078,11 @@ def google_api_key() -> str:
 
 def run_ai_summary(prompt: str) -> tuple[bool, str]:
     prompt = (prompt or "").strip()
+    max_chars = int(max(300, min(3000, st.session_state.get("ai_max_chars", 1200))))
+    model = LEGACY_AI_MODEL_MAP.get(st.session_state.get("ai_model", ""), st.session_state.get("ai_model", "gemini-2.5-flash"))
+    if model not in AI_MODELS:
+        model = "gemini-2.5-flash"
+        st.session_state.ai_model = model
     if not prompt:
         return False, "Bitte erst eine Frage oder einen Text eingeben."
     if genai is None:
@@ -1063,19 +1092,22 @@ def run_ai_summary(prompt: str) -> tuple[bool, str]:
         return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY in Streamlit Secrets gefunden."
     instruction = (
         "Fasse fuer ein TikTok-Live-Publikum sachlich, knapp und verstaendlich zusammen. "
-        "Maximal 3000 Zeichen. Keine personenbezogenen Daten erfinden. Wenn Fakten unsicher sind, klar kennzeichnen.\n\n"
+        f"Antworte mit maximal {max_chars} Zeichen inklusive Leerzeichen. "
+        "Schreibe nicht laenger als diese Zeichenbegrenzung. Keine personenbezogenen Daten erfinden. "
+        "Wenn Fakten unsicher sind, klar kennzeichnen.\n\n"
         f"Prompt:\n{prompt}"
     )
     try:
         client = genai.Client(api_key=api_key)
-        kwargs: dict[str, Any] = {"model": st.session_state.get("ai_model", "gemini-2.5-flash"), "contents": instruction}
+        kwargs: dict[str, Any] = {"model": model, "contents": instruction}
         if genai_types is not None:
-            kwargs["config"] = genai_types.GenerateContentConfig(max_output_tokens=1100, temperature=0.25)
+            token_budget = max(128, min(1100, math.ceil(max_chars / 2.6)))
+            kwargs["config"] = genai_types.GenerateContentConfig(max_output_tokens=token_budget, temperature=0.25)
         response = client.models.generate_content(**kwargs)
         text = getattr(response, "text", "") or ""
         text = text.strip()
-        if len(text) > 3000:
-            text = text[:2990].rstrip() + " ..."
+        if len(text) > max_chars:
+            text = text[: max_chars - 4].rstrip() + " ..."
         return True, text or "Keine Antwort erhalten."
     except Exception as exc:
         return False, f"KI-Anfrage fehlgeschlagen: {exc}"
@@ -2115,7 +2147,12 @@ def render_media_panel() -> None:
 def render_ai_panel() -> None:
     section("KI-Check")
     st.caption("Nutzt Google Gemini ueber Streamlit Secrets: GOOGLE_API_KEY oder GEMINI_API_KEY. Die Antwort kann als Karte auf der Bühne angezeigt werden.")
-    st.selectbox("Modell", ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"], key="ai_model")
+    if st.session_state.get("ai_model") in LEGACY_AI_MODEL_MAP:
+        st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
+    if st.session_state.get("ai_model") not in AI_MODELS:
+        st.session_state.ai_model = "gemini-2.5-flash"
+    st.selectbox("Modell", AI_MODELS, key="ai_model")
+    st.slider("Maximale Antwortlänge", 300, 3000, key="ai_max_chars", step=100, help="Diese Zeichenbegrenzung wird der KI im Prompt mitgegeben und danach zusätzlich hart abgesichert.")
     st.session_state.ai_prompt = st.text_area("Prompt / Text für die Live-Prüfung", value=st.session_state.ai_prompt, height=130)
     c1, c2 = st.columns(2)
     if c1.button("KI prüfen", key="ai_run", use_container_width=True):

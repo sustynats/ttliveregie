@@ -27,6 +27,13 @@ except Exception:
     streamlit_js_eval = None
 
 try:
+    from google import genai
+    from google.genai import types as genai_types
+except Exception:
+    genai = None
+    genai_types = None
+
+try:
     from TikTokLive import TikTokLiveClient
     from TikTokLive.events import CommentEvent, ConnectEvent, DisconnectEvent, LiveEndEvent
 except Exception:  # TikTokLive may be installed after first launch.
@@ -663,6 +670,27 @@ def init_state() -> None:
         "bg_fit": "cover",
         "images": [],
         "active_image_id": None,
+        "show_video": False,
+        "video_url": "",
+        "video_show_background": True,
+        "video_x": 50,
+        "video_y": 54,
+        "video_width": 70,
+        "video_height": 40,
+        "video_opacity": 100,
+        "video_fit": "contain",
+        "video_muted": False,
+        "show_website": False,
+        "website_url": "",
+        "website_x": 50,
+        "website_y": 54,
+        "website_width": 76,
+        "website_height": 58,
+        "show_ai_card": False,
+        "ai_prompt": "",
+        "ai_response": "",
+        "ai_model": "gemini-2.5-flash",
+        "overlay_room_id": "",
         "chat_window": deque(maxlen=5000),
         "keywords": [],
         "last_keyword_update": 0.0,
@@ -691,6 +719,8 @@ def init_state() -> None:
     if not st.session_state.get("user_adjusted_image_look") and st.session_state.get("bg_dim", 25) > 45:
         st.session_state.bg_dim = 25
         st.session_state.bg_brightness = max(115, st.session_state.get("bg_brightness", 115))
+    if not st.session_state.overlay_room_id:
+        st.session_state.overlay_room_id = safe_profile_id(st.session_state.browser_id or str(uuid.uuid4()))[:18]
     if not st.session_state.scenes:
         st.session_state.scenes = build_default_scenes()
 
@@ -735,6 +765,9 @@ def snapshot_scene() -> dict[str, Any]:
         "keyword_random_weight", "highlight_font_family", "highlight_font_weight", "highlight_letter_spacing",
         "countdown_font_family", "countdown_font_weight", "overlay_opacity", "transition_speed",
         "focus_mode", "clear_overlay", "user_adjusted_cloud_position", "user_adjusted_image_look",
+        "show_video", "video_url", "video_show_background", "video_x", "video_y", "video_width", "video_height",
+        "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_x", "website_y",
+        "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_model", "overlay_room_id",
     ]
     return {key: st.session_state.get(key) for key in keys}
 
@@ -755,6 +788,7 @@ def persistent_payload() -> dict[str, Any]:
         {
             "version": 2,
             "browser_id": st.session_state.browser_id or str(uuid.uuid4()),
+            "overlay_room_id": st.session_state.overlay_room_id,
             "images": st.session_state.images,
             "active_image_id": st.session_state.active_image_id,
             "scenes": st.session_state.scenes,
@@ -776,6 +810,11 @@ def profile_state_file(browser_id: str | None = None) -> Path:
     return SERVER_STATE_DIR / f"{safe_profile_id(browser_id or st.session_state.get('browser_id', 'default'))}.json"
 
 
+def room_state_file(room_id: str | None = None) -> Path:
+    SERVER_STATE_DIR.mkdir(exist_ok=True)
+    return SERVER_STATE_DIR / f"room_{safe_profile_id(room_id or st.session_state.get('overlay_room_id', 'default'))}.json"
+
+
 def apply_persistent_payload(payload: dict[str, Any]) -> None:
     if not isinstance(payload, dict):
         return
@@ -787,6 +826,7 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         "custom_blacklist_text",
         "custom_whitelist_text",
         "last_active_scene",
+        "overlay_room_id",
     }
     for key, value in payload.items():
         if key in allowed:
@@ -847,6 +887,7 @@ def save_persisted_state(reason: str = "auto") -> None:
     data = json.dumps(payload, ensure_ascii=False)
     try:
         profile_state_file(payload.get("browser_id")).write_text(data, encoding="utf-8")
+        room_state_file(payload.get("overlay_room_id")).write_text(json.dumps(current_overlay_state(), ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
     if streamlit_js_eval is not None:
@@ -886,6 +927,73 @@ def format_duration(seconds: float | None) -> str:
         return "00:00:00"
     seconds = int(max(0, seconds))
     return f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
+
+def readable_url(value: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if not re.match(r"^https?://", value, re.IGNORECASE):
+        value = f"https://{value}"
+    return value
+
+
+def brighten_stage() -> None:
+    st.session_state.bg_dim = 18
+    st.session_state.bg_blur = 0
+    st.session_state.bg_brightness = 125
+    st.session_state.bg_opacity = 100
+    st.session_state.overlay_opacity = 100
+    st.session_state.clear_overlay = False
+    st.session_state.show_background = True
+    st.session_state.user_adjusted_image_look = True
+
+
+def google_api_key() -> str:
+    for key in ("GOOGLE_API_KEY", "GEMINI_API_KEY"):
+        try:
+            value = st.secrets.get(key, "")
+        except Exception:
+            value = ""
+        if value:
+            return str(value)
+    try:
+        google_section = st.secrets.get("google", {})
+        for key in ("api_key", "GOOGLE_API_KEY", "GEMINI_API_KEY"):
+            if google_section.get(key):
+                return str(google_section.get(key))
+    except Exception:
+        pass
+    return ""
+
+
+def run_ai_summary(prompt: str) -> tuple[bool, str]:
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return False, "Bitte erst eine Frage oder einen Text eingeben."
+    if genai is None:
+        return False, "Google GenAI Paket fehlt. Bitte requirements.txt deployen/installieren."
+    api_key = google_api_key()
+    if not api_key:
+        return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY in Streamlit Secrets gefunden."
+    instruction = (
+        "Fasse fuer ein TikTok-Live-Publikum sachlich, knapp und verstaendlich zusammen. "
+        "Maximal 3000 Zeichen. Keine personenbezogenen Daten erfinden. Wenn Fakten unsicher sind, klar kennzeichnen.\n\n"
+        f"Prompt:\n{prompt}"
+    )
+    try:
+        client = genai.Client(api_key=api_key)
+        kwargs: dict[str, Any] = {"model": st.session_state.get("ai_model", "gemini-2.5-flash"), "contents": instruction}
+        if genai_types is not None:
+            kwargs["config"] = genai_types.GenerateContentConfig(max_output_tokens=1100, temperature=0.25)
+        response = client.models.generate_content(**kwargs)
+        text = getattr(response, "text", "") or ""
+        text = text.strip()
+        if len(text) > 3000:
+            text = text[:2990].rstrip() + " ..."
+        return True, text or "Keine Antwort erhalten."
+    except Exception as exc:
+        return False, f"KI-Anfrage fehlgeschlagen: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -1081,6 +1189,17 @@ def css_for_streamlit() -> str:
     }
     .layout-card b { color:#fff8ed !important; }
     .layout-card span { color:#cfc3b6 !important; font-size:.76rem; }
+    .font-preview {
+        margin: .35rem 0 .7rem;
+        padding: .55rem .65rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.055);
+        color: #fff8ed !important;
+        font-size: 1.28rem;
+        line-height: 1.15;
+    }
+    .font-preview.compact { font-size: .95rem; color: #f2e5d7 !important; }
     div[data-testid="stExpander"] {
         border: 1px solid rgba(255,255,255,.12);
         border-radius: 8px;
@@ -1138,12 +1257,15 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     countdown_pct = max(0, min(100, remaining / total * 100))
     mins, secs = divmod(remaining, 60)
     safe_zones = state.get("show_safe_zones")
-    bg_url = state.get("active_image_data") if state.get("show_background") else ""
+    show_video = bool(state.get("show_video") and state.get("video_url"))
+    bg_visible_behind_video = state.get("video_show_background", True)
+    bg_url = state.get("active_image_data") if state.get("show_background") and (not show_video or bg_visible_behind_video) else ""
     aspect = "9 / 16" if state.get("aspect", DEFAULT_ASPECT) == "9:16" else "16 / 9"
     stage_width = "min(74vh, 100%)" if state.get("aspect", DEFAULT_ASPECT) == "9:16" else "100%"
     animation_scale = state.get("animation_intensity", 55) / 100
     anim_enabled = state.get("show_animations", True)
     overlay_opacity = state.get("overlay_opacity", 100) / 100
+    dim_alpha = max(0, min(0.5, state.get("bg_dim", 25) / 100))
     cloud_w = state.get("cloud_width", 68)
     cloud_h = state.get("cloud_height", 66)
     cloud_x = state.get("cloud_pos_x", theme.get("cloud_x", 45))
@@ -1233,6 +1355,23 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     safe_html = ""
     if safe_zones and not hidden:
         safe_html = '<div class="safe guest">Gäste-Zone</div><div class="safe chat">TikTok Chat-Zone</div>'
+    video_html = ""
+    if not hidden and show_video:
+        video_html = (
+            f'<video class="stage-video" src="{html.escape(state.get("video_url", ""))}" '
+            f'controls playsinline {"muted" if state.get("video_muted") else ""} '
+            f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};object-fit:{html.escape(state.get("video_fit","contain"))};"></video>'
+        )
+    website_html = ""
+    if not hidden and state.get("show_website") and state.get("website_url"):
+        website_html = (
+            f'<iframe class="stage-web" src="{html.escape(state.get("website_url",""))}" '
+            f'style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;" '
+            f'allow="clipboard-read; clipboard-write; fullscreen; autoplay" referrerpolicy="no-referrer-when-downgrade"></iframe>'
+        )
+    ai_html = ""
+    if not hidden and state.get("show_ai_card") and state.get("ai_response"):
+        ai_html = f'<div class="ai-card"><b>KI-Check</b><p>{html.escape(state.get("ai_response",""))}</p></div>'
 
     frame_cls = " framed" if state.get("show_overlay_frame", True) else ""
     anim_cls = " animated" if anim_enabled else ""
@@ -1254,6 +1393,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       --topicFont:{topic_font}; --keywordFont:{keyword_font}; --highlightFont:{highlight_font}; --countdownFont:{countdown_font};
       --topicWeight:{topic_weight}; --keywordWeight:{keyword_weight}; --highlightWeight:{highlight_weight}; --countdownWeight:{countdown_weight};
       --topicSpacing:{topic_spacing:.2f}em; --highlightSpacing:{highlight_spacing:.2f}em; --topicTransform:{topic_transform};
+      --dim:{dim_alpha:.2f};
     }}
     * {{ box-sizing:border-box; }}
     body {{
@@ -1282,8 +1422,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       position:absolute; inset:0; z-index:-3;
       background:
         radial-gradient(circle at 24% 28%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 30%),
-        linear-gradient(90deg, rgba(0,0,0,.62), rgba(0,0,0,.20) 50%, rgba(0,0,0,.08)),
-        linear-gradient(180deg, rgba(0,0,0,.12), rgba(0,0,0,.42));
+        linear-gradient(90deg, rgba(0,0,0,var(--dim)), rgba(0,0,0,calc(var(--dim) * .38)) 50%, rgba(0,0,0,calc(var(--dim) * .18))),
+        linear-gradient(180deg, rgba(0,0,0,calc(var(--dim) * .2)), rgba(0,0,0,var(--dim)));
     }}
     .layout-clean .readability {{ background:linear-gradient(90deg, rgba(255,255,255,.68), rgba(255,255,255,.24) 65%, rgba(255,255,255,.06)); }}
     .layout-soft .readability {{ background:radial-gradient(circle at 18% 26%, rgba(176,78,111,.16), transparent 28%), linear-gradient(90deg, rgba(255,246,239,.72), rgba(255,246,239,.2) 62%, rgba(255,246,239,.05)); }}
@@ -1349,6 +1489,22 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .safe {{ position:absolute; display:grid; place-items:center; color:rgba(255,255,255,.72); border:1px dashed rgba(255,255,255,.38); background:rgba(255,255,255,.06); font-size:13px; font-weight:800; text-transform:uppercase; }}
     .safe.guest {{ top:0; right:0; width:28%; height:100%; }}
     .safe.chat {{ left:0; right:0; bottom:0; height:18%; }}
+    .stage-video, .stage-web {{
+      position:absolute; left:var(--vx, var(--wx)); top:var(--vy, var(--wy));
+      width:var(--vw, var(--ww)); height:var(--vh, var(--wh));
+      transform:translate(-50%,-50%); z-index:5; border-radius:8px;
+      border:1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+      box-shadow:0 18px 48px rgba(0,0,0,.42); background:#050608;
+    }}
+    .stage-video {{ opacity:var(--vo); }}
+    .stage-web {{ z-index:4; }}
+    .ai-card {{
+      position:absolute; left:7%; right:30%; bottom:20%; z-index:6; padding:18px 20px;
+      border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+      backdrop-filter:blur(16px); box-shadow:0 18px 48px rgba(0,0,0,.34);
+    }}
+    .ai-card b {{ display:block; font-family:var(--countdownFont); color:var(--accent); margin-bottom:8px; }}
+    .ai-card p {{ margin:0; white-space:pre-wrap; font-size:clamp(16px, 2.2vw, 26px); line-height:1.25; }}
     @keyframes floaty {{
       0%,100% {{ transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s)); opacity:.82; }}
       50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity:1; }}
@@ -1370,8 +1526,11 @@ def render_overlay_html(state: dict[str, Any]) -> str:
           {clock_html}
           {topic_html}
           {highlight_html}
+          {website_html}
+          {video_html}
           {cloud_html}
           {countdown_html}
+          {ai_html}
           {safe_html}
         </main>
       </div>
@@ -1408,9 +1567,29 @@ def persist_overlay_state() -> None:
     data = current_overlay_state()
     safe = json.dumps(data, ensure_ascii=False)
     RUNTIME_STATE_FILE.write_text(safe, encoding="utf-8")
+    try:
+        room_state_file(st.session_state.overlay_room_id).write_text(safe, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def load_overlay_state() -> dict[str, Any]:
+    room = st.query_params.get("room", "")
+    if room:
+        room_file = room_state_file(room)
+        if room_file.exists():
+            try:
+                data = json.loads(room_file.read_text(encoding="utf-8"))
+                data.setdefault("keywords", [])
+                data.setdefault("manual_cloud_words", parse_manual_cloud_words(data.get("manual_cloud_words_text", "")))
+                if not data.get("active_image_data") and data.get("active_image_id") and data.get("images"):
+                    for image in data.get("images", []):
+                        if image.get("id") == data.get("active_image_id"):
+                            data["active_image_data"] = image.get("data_url", "")
+                            break
+                return data
+            except Exception:
+                pass
     if RUNTIME_STATE_FILE.exists():
         try:
             return json.loads(RUNTIME_STATE_FILE.read_text(encoding="utf-8"))
@@ -1621,13 +1800,15 @@ def render_image_panel() -> None:
     if c2.button("Aktives Bild abwählen", key="image_remove", use_container_width=True):
         st.session_state.active_image_id = None
     if c3.button("Look optimieren", key="image_auto_optimize", use_container_width=True):
-        st.session_state.bg_dim = 58
-        st.session_state.bg_blur = 5
-        st.session_state.bg_brightness = 100
-        st.session_state.bg_opacity = 88
+        st.session_state.bg_dim = 34
+        st.session_state.bg_blur = 2
+        st.session_state.bg_brightness = 112
+        st.session_state.bg_opacity = 96
         st.session_state.user_adjusted_image_look = True
         st.session_state.cloud_width = 62
         st.session_state.show_background = True
+    if st.button("Bühne aufhellen", key="image_brighten_stage", use_container_width=True):
+        brighten_stage()
     st.selectbox("Bild-Fit", ["cover", "contain"], key="bg_fit")
     st.slider("Helligkeit", 20, 140, key="bg_brightness")
     st.session_state.bg_blur = st.slider("Bild-Blur", 0, 18, value=st.session_state.bg_blur, key="image_bg_blur")
@@ -1686,6 +1867,7 @@ def render_quick_actions() -> None:
         ("Freeze", "freeze"),
         ("Reset", "reset"),
         ("Auto-Highlight", "auto_highlight_action"),
+        ("Aufhellen", "brighten"),
         ("Focus", "focus"),
         ("Minimal", "minimal"),
         ("Clear", "clear"),
@@ -1710,6 +1892,8 @@ def apply_quick_action(action: str) -> None:
     elif action == "auto_highlight_action":
         st.session_state.auto_highlight = True
         st.session_state.highlight_word = ""
+    elif action == "brighten":
+        brighten_stage()
     elif action == "focus":
         st.session_state.focus_mode = not st.session_state.focus_mode
     elif action == "minimal":
@@ -1746,24 +1930,101 @@ def render_faders() -> None:
     st.slider("Übergangsgeschwindigkeit", 10, 100, key="transition_speed")
 
 
+def render_media_panel() -> None:
+    section("Video")
+    st.session_state.video_url = st.text_input(
+        "Video-URL",
+        value=st.session_state.video_url,
+        placeholder="https://.../video.mp4 oder direkte WebM/HLS-URL",
+    )
+    st.caption("Direkte MP4/WebM/HLS-Links laufen im Videoplayer. YouTube/TikTok-Webseiten bitte als Website/Embed einbinden.")
+    v1, v2 = st.columns(2)
+    with v1:
+        st.toggle("Video anzeigen", key="show_video")
+        st.toggle("Ton stummschalten", key="video_muted")
+    with v2:
+        st.toggle("Hintergrund hinter Video sichtbar", key="video_show_background")
+        st.selectbox("Video Fit", ["contain", "cover", "fill"], key="video_fit")
+    if st.session_state.video_url:
+        st.session_state.video_url = readable_url(st.session_state.video_url)
+    st.slider("Video Position X", 0, 100, key="video_x")
+    st.slider("Video Position Y", 0, 100, key="video_y")
+    st.slider("Video Breite", 15, 100, key="video_width")
+    st.slider("Video Höhe", 10, 90, key="video_height")
+    st.slider("Video Deckkraft", 20, 100, key="video_opacity")
+
+    section("Website / Browser")
+    st.session_state.website_url = st.text_input(
+        "Website-URL",
+        value=st.session_state.website_url,
+        placeholder="https://example.com",
+    )
+    st.caption("Viele Websites erlauben Einbettung im iframe nicht. Dann bleibt die Fläche leer; Embed-URLs funktionieren meist besser.")
+    st.toggle("Website anzeigen", key="show_website")
+    if st.session_state.website_url:
+        st.session_state.website_url = readable_url(st.session_state.website_url)
+    st.slider("Website Position X", 0, 100, key="website_x")
+    st.slider("Website Position Y", 0, 100, key="website_y")
+    st.slider("Website Breite", 20, 100, key="website_width")
+    st.slider("Website Höhe", 15, 90, key="website_height")
+
+
+def render_ai_panel() -> None:
+    section("KI-Check")
+    st.caption("Nutzt Google Gemini ueber Streamlit Secrets: GOOGLE_API_KEY oder GEMINI_API_KEY. Die Antwort kann als Karte auf der Bühne angezeigt werden.")
+    st.selectbox("Modell", ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"], key="ai_model")
+    st.session_state.ai_prompt = st.text_area("Prompt / Text für die Live-Prüfung", value=st.session_state.ai_prompt, height=130)
+    c1, c2 = st.columns(2)
+    if c1.button("KI prüfen", key="ai_run", use_container_width=True):
+        ok, text = run_ai_summary(st.session_state.ai_prompt)
+        st.session_state.ai_response = text
+        st.session_state.show_ai_card = ok
+        if ok:
+            st.success("Antwort ist bereit.")
+        else:
+            st.error(text)
+    if c2.button("KI-Karte löschen", key="ai_clear", use_container_width=True):
+        st.session_state.ai_response = ""
+        st.session_state.show_ai_card = False
+    st.toggle("KI-Karte auf Bühne anzeigen", key="show_ai_card")
+    if st.session_state.ai_response:
+        st.text_area("Aktuelle KI-Antwort", value=st.session_state.ai_response, height=160, disabled=True)
+
+
 def render_typography_panel() -> None:
     section("Typografie")
     fonts = list(FONT_PRESETS)
     transforms = ["normal", "uppercase"]
     st.selectbox("Thema Font", fonts, key="topic_font_family")
+    st.markdown(
+        f'<div class="font-preview" style="font-family:{font_stack(st.session_state.topic_font_family)}">Thema Vorschau: Worueber sprechen wir gerade?</div>',
+        unsafe_allow_html=True,
+    )
     st.slider("Thema Größe", 65, 180, key="topic_text_size")
     st.slider("Thema Gewicht", 300, 950, key="topic_font_weight", step=50)
     st.slider("Thema Letter Spacing", -8, 18, key="topic_letter_spacing")
     st.selectbox("Thema Text Transform", transforms, key="topic_text_transform")
     st.selectbox("Keyword Font", fonts, key="keyword_font_family")
+    st.markdown(
+        f'<div class="font-preview compact" style="font-family:{font_stack(st.session_state.keyword_font_family)}">Keyword Vorschau: demokratie dialog fakten live</div>',
+        unsafe_allow_html=True,
+    )
     st.slider("Keyword Basisgröße", 55, 180, key="keyword_size")
     st.slider("Keyword Gewicht", 300, 950, key="keyword_font_weight", step=50)
     st.toggle("Zufällige Keyword-Gewichtung", key="keyword_random_weight")
     st.selectbox("Highlight Font", fonts, key="highlight_font_family")
+    st.markdown(
+        f'<div class="font-preview" style="font-family:{font_stack(st.session_state.highlight_font_family)}">Highlight Vorschau</div>',
+        unsafe_allow_html=True,
+    )
     st.slider("Highlight Größe", 60, 190, key="highlight_text_size")
     st.slider("Highlight Gewicht", 300, 950, key="highlight_font_weight", step=50)
     st.slider("Highlight Letter Spacing", -8, 18, key="highlight_letter_spacing")
     st.selectbox("Countdown / Uhr Font", fonts, key="countdown_font_family")
+    st.markdown(
+        f'<div class="font-preview compact" style="font-family:{font_stack(st.session_state.countdown_font_family)}">LIVE 12:34 · seit 00:12:08</div>',
+        unsafe_allow_html=True,
+    )
     st.slider("Countdown Größe", 70, 160, key="countdown_text_size")
     st.slider("Live-Uhr Größe", 70, 160, key="clock_text_size")
     st.slider("Countdown / Uhr Gewicht", 300, 950, key="countdown_font_weight", step=50)
@@ -1815,6 +2076,17 @@ def render_safety_panel() -> None:
 def render_persistence_panel() -> None:
     section("Persistenz / Backup")
     st.caption("Settings, Szenen und Bildbibliothek werden im Browser localStorage gesichert. Zusaetzlich wird lokal eine JSON-Datei als Fallback geschrieben.")
+    st.session_state.overlay_room_id = safe_profile_id(
+        st.text_input("Geheime Host-Overlay-ID", value=st.session_state.overlay_room_id, help="Diese ID verbindet Regiepult und Browserquelle. Sie ist nicht an den TikTok-Usernamen gebunden.")
+    )
+    cloud_url = f"https://ttliveregie.streamlit.app/?overlay=1&room={st.session_state.overlay_room_id}"
+    local_url = f"http://localhost:8501/?overlay=1&room={st.session_state.overlay_room_id}"
+    st.markdown(f"**Streamlit-Cloud Browserquelle:** `{cloud_url}`")
+    st.markdown(f"**Lokale Browserquelle:** `{local_url}`")
+    if st.button("Neue geheime Overlay-ID erzeugen", key="room_rotate", use_container_width=True):
+        st.session_state.overlay_room_id = safe_profile_id(str(uuid.uuid4()))[:18]
+        save_persisted_state("rotate_room")
+        st.rerun()
     if st.button("Jetzt speichern", key="persist_save_btn", use_container_width=True):
         save_persisted_state("manual")
         st.success("Gespeichert.")
@@ -1860,14 +2132,19 @@ def render_control_panel() -> None:
     with st.expander("7. Cloud", expanded=False):
         render_section_note("Hier verschiebst du die Tag-Cloud frei auf der Bühne. X/Y reagieren live.")
         render_faders()
-    with st.expander("8. Bilder", expanded=False):
+    with st.expander("8. Medien / Web", expanded=False):
+        render_section_note("Video und Website liegen direkt auf der Bühne. Die eingebetteten Controls sind in der Bühnenfläche klickbar.")
+        render_media_panel()
+    with st.expander("9. Bilder", expanded=False):
         render_section_note("Ausblenden hält das aktive Bild bereit. Löschen entfernt es aus der lokalen Bildbibliothek.")
         render_image_panel()
-    with st.expander("9. Typografie", expanded=False):
+    with st.expander("10. KI-Check", expanded=False):
+        render_ai_panel()
+    with st.expander("11. Typografie", expanded=False):
         render_typography_panel()
-    with st.expander("10. Safety", expanded=False):
+    with st.expander("12. Safety", expanded=False):
         render_safety_panel()
-    with st.expander("11. Persistenz / Backup", expanded=False):
+    with st.expander("13. Persistenz / Backup", expanded=False):
         render_persistence_panel()
 
 

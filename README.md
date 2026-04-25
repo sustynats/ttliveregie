@@ -15,6 +15,7 @@ Dann im Browser oeffnen:
 
 - Regiepult: `http://localhost:8501`
 - Overlay-only: `http://localhost:8501?overlay=1`
+- Host-gebundene Browserquelle: im Regiepult unter `Persistenz / Backup` die geheime Overlay-ID nutzen, z. B. `http://localhost:8501/?overlay=1&room=deine-id`
 
 ## Nutzung mit TikTok Live Studio
 
@@ -23,16 +24,29 @@ Dann im Browser oeffnen:
 3. Links Szenen, Layout, Cloud-Stil, Thema, Highlight, Countdown, Bilder, Typografie und Safety steuern.
 4. Manuelle Cloud-Woerter setzen und Schriftgroessen/Familien fuer Thema, Keywords, Highlight, Countdown und Uhr live anpassen.
 5. Mehrere Bilder hochladen, benennen, ausblenden, aktivieren oder aus der Session-Bibliothek loeschen.
-6. Szenen speichern, ueberschreiben, duplizieren, umbenennen, loeschen, importieren und exportieren.
-7. Settings, Szenen und Bildbibliothek werden pro Browser/Host im Browser localStorage gespeichert; zusaetzlich schreibt die App pro Browser-ID eine lokale JSON-Fallback-Datei.
-8. In TikTok Live Studio eine Browserquelle mit `http://localhost:8501?overlay=1` anlegen.
-9. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
+6. Unter `Medien / Web` direkte Video-URLs einblenden, Ton stummschalten oder aktiv lassen, Video skalieren/positionieren und entscheiden, ob das Hintergrundbild hinter dem Video sichtbar bleibt.
+7. Unter `Medien / Web` Websites als iframe einbetten. Viele Seiten blockieren iframe-Einbettung; Embed-URLs funktionieren am zuverlaessigsten.
+8. Unter `KI-Check` eine kurze sichtbare Zusammenfassung erzeugen und als Karte auf die Buehne legen.
+9. Szenen speichern, ueberschreiben, duplizieren, umbenennen, loeschen, importieren und exportieren.
+10. Settings, Szenen und Bildbibliothek werden pro Browser/Host im Browser localStorage gespeichert; zusaetzlich schreibt die App pro Browser-ID eine lokale JSON-Fallback-Datei.
+11. In TikTok Live Studio eine Browserquelle mit der geheimen Host-URL aus `Persistenz / Backup` anlegen: `...?overlay=1&room=...`.
+12. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
+
+Wenn die Buehne durch Bild-/Overlay-Regler zu dunkel wird, oben im Regiepult `Aufhellen` oder im Bildbereich `Buehne aufhellen` klicken.
 
 ## Streamlit Cloud
 
 1. Repository mit `app.py` und `requirements.txt` deployen.
 2. Main file path: `app.py`.
 3. Nach dem Deploy die App im Browser oeffnen. Browser-Speicherung funktioniert getrennt pro Browser/Geraet ueber localStorage.
+
+Optional fuer den KI-Check in den Streamlit-Secrets hinterlegen:
+
+```toml
+GOOGLE_API_KEY = "dein_google_ai_key"
+```
+
+Alternativ funktioniert auch `GEMINI_API_KEY`.
 
 ## Backup
 

@@ -3,3 +3,4 @@ streamlit-autorefresh>=1.0.1
 streamlit-js-eval>=1.0.0
 TikTokLive>=6.0.0
 regex>=2024.5.15
+google-genai>=1.11.0

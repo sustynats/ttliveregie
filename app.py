@@ -2259,7 +2259,7 @@ def render_control_panel() -> None:
     with st.expander("1. Verbindung", expanded=True):
         render_section_note("Nur hier startest oder stoppst du den TikTok-Live-Chat. Im Overlay erscheinen keine Usernamen oder Einzelkommentare.")
         render_connection_panel()
-    with st.expander("2. Szenen", expanded=True):
+    with st.expander("2. Szenen", expanded=False):
         render_section_note("Szenen speichern den kompletten visuellen Zustand. Nutze sie live wie Regie-Cues.")
         render_scene_panel()
     with st.expander("3. Sichtbarkeit", expanded=False):

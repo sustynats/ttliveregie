@@ -908,41 +908,20 @@ def active_image_name() -> str:
 def css_for_streamlit() -> str:
     return """
     <style>
-    .stApp { background: #0d0f12; color: #f7f2ea; height: 100vh; overflow: hidden; }
-    html, body, [data-testid="stAppViewContainer"], .main {
-        height: 100vh;
-        overflow: hidden;
-    }
-    [data-testid="stHeader"] { background: transparent; height: 0; min-height: 0; }
+    .stApp { background: #0d0f12; color: #f7f2ea; }
+    [data-testid="stHeader"] { background: transparent; }
     [data-testid="stSidebar"] { display: none; }
     .block-container {
         max-width: 100%;
-        height: 100vh;
-        max-height: 100vh;
-        padding: 1rem;
-        overflow: hidden;
-    }
-    .block-container div[data-testid="stHorizontalBlock"]:has(.st-key-control_panel_scroll) {
-        height: calc(100vh - 2rem);
-        max-height: calc(100vh - 2rem);
-        min-height: 0;
-        align-items: flex-start;
+        padding: 1rem 1rem 1.5rem;
     }
     .st-key-control_panel_scroll {
         background: #12161a;
         border: 1px solid rgba(255,255,255,.16);
         border-radius: 8px;
         padding: .8rem .75rem;
-        height: calc(100vh - 2rem);
-        max-height: calc(100vh - 2rem);
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
+        max-height: none;
         color: #f7f2ea;
-    }
-    .st-key-control_panel_scroll > div,
-    .st-key-control_panel_scroll [data-testid="stVerticalBlock"] {
-        min-height: 0 !important;
-        max-height: none !important;
     }
     .st-key-control_panel_scroll * {
         color: inherit;
@@ -989,13 +968,9 @@ def css_for_streamlit() -> str:
         color: #ff5a61 !important;
     }
     .st-key-stage_panel_fixed {
-        height: calc(100vh - 2rem);
-        max-height: calc(100vh - 2rem);
+        position: sticky;
+        top: 1rem;
         align-self: flex-start;
-        overflow: hidden;
-    }
-    .st-key-stage_panel_fixed iframe {
-        max-height: calc(100vh - 5.5rem);
     }
     div.stButton > button {
         width: 100%;
@@ -1880,7 +1855,7 @@ def main() -> None:
 
     left, right = st.columns([0.28, 0.72], gap="medium")
     with left:
-        with st.container(height=820, key="control_panel_scroll"):
+        with st.container(key="control_panel_scroll"):
             render_control_panel()
     with right:
         with st.container(key="stage_panel_fixed"):

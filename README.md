@@ -24,7 +24,7 @@ Dann im Browser oeffnen:
 4. Manuelle Cloud-Woerter setzen und Schriftgroessen/Familien fuer Thema, Keywords, Highlight, Countdown und Uhr live anpassen.
 5. Mehrere Bilder hochladen, benennen, ausblenden, aktivieren oder aus der Session-Bibliothek loeschen.
 6. Szenen speichern, ueberschreiben, duplizieren, umbenennen, loeschen, importieren und exportieren.
-7. Settings, Szenen und Bildbibliothek werden im Browser localStorage gespeichert; zusaetzlich schreibt die App eine lokale JSON-Fallback-Datei.
+7. Settings, Szenen und Bildbibliothek werden pro Browser/Host im Browser localStorage gespeichert; zusaetzlich schreibt die App pro Browser-ID eine lokale JSON-Fallback-Datei.
 8. In TikTok Live Studio eine Browserquelle mit `http://localhost:8501?overlay=1` anlegen.
 9. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
 
@@ -32,12 +32,12 @@ Dann im Browser oeffnen:
 
 1. Repository mit `app.py` und `requirements.txt` deployen.
 2. Main file path: `app.py`.
-3. Nach dem Deploy die App im Browser oeffnen. Browser-Speicherung funktioniert pro Browser/Geraet ueber localStorage.
+3. Nach dem Deploy die App im Browser oeffnen. Browser-Speicherung funktioniert getrennt pro Browser/Geraet ueber localStorage.
 
 ## Backup
 
 - `Backup exportieren` speichert alle visuellen Einstellungen, Szenen und die Bildbibliothek als JSON.
 - `Backup importieren` stellt diese Daten wieder her.
-- `Alles lokal loeschen` entfernt den Browser-Speicher und den lokalen Fallback.
+- `Alles lokal loeschen` entfernt den Browser-Speicher und den lokalen Fallback fuer den aktuellen Host/Browser.
 
 Hinweis: `TikTokLive` ist eine inoffizielle Bibliothek. Wenn TikTok intern etwas aendert, kann die Verbindung zeitweise fehlschlagen. Das Overlay zeigt niemals Usernamen oder einzelne Chatnachrichten, sondern nur aggregierte Keywords.

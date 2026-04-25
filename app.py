@@ -40,8 +40,9 @@ except Exception:  # TikTokLive may be installed after first launch.
 
 APP_DIR = Path(__file__).parent
 RUNTIME_STATE_FILE = APP_DIR / ".overlay_runtime_state.json"
-SERVER_STATE_FILE = APP_DIR / ".ttliveregie_state.json"
+SERVER_STATE_DIR = APP_DIR / ".ttliveregie_profiles"
 LOCAL_STORAGE_KEY = "ttliveregie_state_v2"
+LOCAL_BROWSER_ID_KEY = "ttliveregie_browser_id_v1"
 COMMENT_WINDOW_SECONDS = 4 * 60
 KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
@@ -757,6 +758,16 @@ def persistent_payload() -> dict[str, Any]:
     return payload
 
 
+def safe_profile_id(value: str) -> str:
+    value = re.sub(r"[^a-zA-Z0-9_-]", "", value or "")
+    return value[:80] or "default"
+
+
+def profile_state_file(browser_id: str | None = None) -> Path:
+    SERVER_STATE_DIR.mkdir(exist_ok=True)
+    return SERVER_STATE_DIR / f"{safe_profile_id(browser_id or st.session_state.get('browser_id', 'default'))}.json"
+
+
 def apply_persistent_payload(payload: dict[str, Any]) -> None:
     if not isinstance(payload, dict):
         return
@@ -782,10 +793,21 @@ def load_persisted_state_once() -> None:
     if st.session_state.persist_loaded:
         return
     loaded = None
+    browser_id = None
     if get_local_storage is not None:
         try:
+            browser_id = get_local_storage(LOCAL_BROWSER_ID_KEY, component_key="browser_id_load")
+            if not browser_id:
+                browser_id = str(uuid.uuid4())
+                if streamlit_js_eval is not None:
+                    streamlit_js_eval(
+                        js_expressions=f"localStorage.setItem({json.dumps(LOCAL_BROWSER_ID_KEY)}, {json.dumps(browser_id)})",
+                        key="browser_id_create",
+                    )
+            st.session_state.browser_id = browser_id
             raw = get_local_storage(LOCAL_STORAGE_KEY, component_key="persist_load")
-            if raw is None and not SERVER_STATE_FILE.exists():
+            fallback_file = profile_state_file(browser_id)
+            if raw is None and not fallback_file.exists():
                 if not st.session_state.browser_id:
                     st.session_state.browser_id = str(uuid.uuid4())
                 return
@@ -793,9 +815,10 @@ def load_persisted_state_once() -> None:
                 loaded = json.loads(raw)
         except Exception:
             loaded = None
-    if loaded is None and SERVER_STATE_FILE.exists():
+    fallback_file = profile_state_file(browser_id or st.session_state.browser_id)
+    if loaded is None and fallback_file.exists():
         try:
-            loaded = json.loads(SERVER_STATE_FILE.read_text(encoding="utf-8"))
+            loaded = json.loads(fallback_file.read_text(encoding="utf-8"))
         except Exception:
             loaded = None
     if loaded:
@@ -809,12 +832,15 @@ def save_persisted_state(reason: str = "auto") -> None:
     payload = persistent_payload()
     data = json.dumps(payload, ensure_ascii=False)
     try:
-        SERVER_STATE_FILE.write_text(data, encoding="utf-8")
+        profile_state_file(payload.get("browser_id")).write_text(data, encoding="utf-8")
     except Exception:
         pass
     if streamlit_js_eval is not None:
         digest = hashlib.sha1(data.encode("utf-8")).hexdigest()[:12]
-        js = f"localStorage.setItem({json.dumps(LOCAL_STORAGE_KEY)}, {json.dumps(data)})"
+        js = (
+            f"localStorage.setItem({json.dumps(LOCAL_BROWSER_ID_KEY)}, {json.dumps(payload.get('browser_id'))});"
+            f"localStorage.setItem({json.dumps(LOCAL_STORAGE_KEY)}, {json.dumps(data)})"
+        )
         try:
             streamlit_js_eval(js_expressions=js, key=f"persist_save_{reason}_{digest}")
         except Exception:
@@ -828,7 +854,7 @@ def clear_persisted_state() -> None:
             key=f"persist_clear_{int(time.time())}",
         )
     try:
-        SERVER_STATE_FILE.unlink(missing_ok=True)
+        profile_state_file().unlink(missing_ok=True)
     except Exception:
         pass
 

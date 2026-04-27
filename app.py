@@ -1838,7 +1838,21 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         safe_html = '<div class="safe guest">Gäste-Zone</div><div class="safe chat">TikTok Chat-Zone</div>'
     motion_html = ""
     if not hidden and anim_enabled and state.get("show_motion_layers", True) and state.get("motion_effects"):
-        effect_nodes = "".join(f'<i class="fx fx-{html.escape(effect.lower())}"></i>' for effect in state.get("motion_effects", []))
+        effect_nodes = []
+        for effect in state.get("motion_effects", []):
+            slug = effect.lower()
+            if slug == "lagerfeuer":
+                effect_nodes.append(
+                    '<div class="fireplace">'
+                    '<div class="fire-glow"></div>'
+                    '<i class="flame f1"></i><i class="flame f2"></i><i class="flame f3"></i><i class="flame f4"></i><i class="flame f5"></i>'
+                    '<i class="ember e1"></i><i class="ember e2"></i><i class="ember e3"></i><i class="ember e4"></i>'
+                    '<div class="logs"><span></span><span></span></div>'
+                    '</div>'
+                )
+            else:
+                effect_nodes.append(f'<i class="fx fx-{html.escape(slug)}"></i>')
+        effect_nodes = "".join(effect_nodes)
         motion_html = f'<div class="motion-layer">{effect_nodes}</div>'
     heatmap_html = ""
     if not hidden and state.get("show_heatmap"):
@@ -1959,7 +1973,20 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .motion-layer {{ position:absolute; inset:0; z-index:3; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
     .fx {{ position:absolute; inset:-18%; display:block; }}
     .fx-nebel {{ background:radial-gradient(circle at 18% 42%, rgba(255,255,255,.28), transparent 26%), radial-gradient(circle at 82% 62%, rgba(255,255,255,.18), transparent 32%); filter:blur(18px); animation: drift calc(20s / var(--motionSpeed)) linear infinite; }}
-    .fx-lagerfeuer {{ background:radial-gradient(ellipse at 30% 86%, rgba(255,117,24,.45), transparent 20%), radial-gradient(ellipse at 48% 90%, rgba(255,205,92,.32), transparent 24%); animation:flicker calc(3s / var(--motionSpeed)) ease-in-out infinite; }}
+    .fireplace {{ position:absolute; left:50%; bottom:4%; width:62%; height:30%; transform:translateX(-50%); filter:saturate(1.15); }}
+    .fire-glow {{ position:absolute; left:50%; bottom:2%; width:86%; height:86%; transform:translateX(-50%); background:radial-gradient(ellipse at 50% 80%, rgba(255,132,28,.75), rgba(255,58,18,.34) 30%, rgba(255,160,50,.12) 52%, transparent 74%); filter:blur(20px); animation:flicker calc(2.6s / var(--motionSpeed)) ease-in-out infinite; }}
+    .flame {{ position:absolute; bottom:18%; left:50%; width:16%; height:62%; border-radius:48% 48% 52% 52%; transform-origin:50% 100%; background:linear-gradient(180deg, rgba(255,250,180,.95) 0%, rgba(255,175,38,.95) 36%, rgba(255,69,18,.72) 76%, transparent 100%); filter:blur(.4px); mix-blend-mode:screen; animation: flameDance calc(1.7s / var(--motionSpeed)) ease-in-out infinite; }}
+    .flame.f1 {{ left:40%; height:54%; width:15%; animation-delay:-.1s; }}
+    .flame.f2 {{ left:49%; height:76%; width:18%; animation-delay:-.45s; }}
+    .flame.f3 {{ left:58%; height:48%; width:14%; animation-delay:-.8s; }}
+    .flame.f4 {{ left:45%; height:38%; width:11%; background:linear-gradient(180deg, rgba(255,255,220,.9), rgba(255,214,62,.9) 42%, transparent); animation-delay:-1.1s; }}
+    .flame.f5 {{ left:54%; height:44%; width:12%; background:linear-gradient(180deg, rgba(255,245,190,.86), rgba(255,109,22,.82) 58%, transparent); animation-delay:-1.35s; }}
+    .logs {{ position:absolute; left:50%; bottom:10%; width:44%; height:16%; transform:translateX(-50%); }}
+    .logs span {{ position:absolute; left:8%; right:8%; top:36%; height:38%; border-radius:999px; background:linear-gradient(90deg, #32170c, #8b4520 28%, #2a1208 72%, #7a3618); box-shadow:0 0 18px rgba(255,90,22,.38); }}
+    .logs span:first-child {{ transform:rotate(11deg); }}
+    .logs span:last-child {{ transform:rotate(-10deg); top:42%; }}
+    .ember {{ position:absolute; bottom:30%; width:5px; height:5px; border-radius:50%; background:#ffd36c; box-shadow:0 0 14px #ff8b22; animation: emberRise calc(4.8s / var(--motionSpeed)) linear infinite; }}
+    .ember.e1 {{ left:42%; animation-delay:-.3s; }} .ember.e2 {{ left:50%; animation-delay:-1.4s; }} .ember.e3 {{ left:58%; animation-delay:-2.6s; }} .ember.e4 {{ left:46%; animation-delay:-3.4s; }}
     .fx-lichtstaub {{ background-image:radial-gradient(circle, rgba(255,255,255,.75) 0 1px, transparent 2px); background-size:72px 72px; animation: drift calc(30s / var(--motionSpeed)) linear infinite reverse; }}
     .fx-scanlines {{ background:repeating-linear-gradient(180deg, rgba(255,255,255,.10) 0 1px, transparent 1px 8px); animation: scan calc(8s / var(--motionSpeed)) linear infinite; }}
     .fx-regen {{ background:repeating-linear-gradient(110deg, transparent 0 16px, rgba(160,200,255,.18) 17px 19px, transparent 20px 34px); animation: rain calc(5s / var(--motionSpeed)) linear infinite; }}
@@ -2067,6 +2094,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     @keyframes drift {{ from {{ transform:translate3d(-4%,0,0); }} to {{ transform:translate3d(6%,-4%,0); }} }}
     @keyframes flicker {{ 0%,100% {{ opacity:.55; transform:scale(1); }} 50% {{ opacity:1; transform:scale(1.04); }} }}
+    @keyframes flameDance {{ 0%,100% {{ transform:translateX(-50%) rotate(-3deg) scaleY(.95); opacity:.82; }} 35% {{ transform:translateX(calc(-50% - 5px)) rotate(4deg) scaleY(1.08); opacity:1; }} 70% {{ transform:translateX(calc(-50% + 4px)) rotate(-6deg) scaleY(.9); opacity:.9; }} }}
+    @keyframes emberRise {{ 0% {{ transform:translate3d(0, 0, 0) scale(.7); opacity:0; }} 18% {{ opacity:1; }} 100% {{ transform:translate3d(18px, -180px, 0) scale(.15); opacity:0; }} }}
     @keyframes scan {{ from {{ transform:translateY(-8%); }} to {{ transform:translateY(8%); }} }}
     @keyframes rain {{ from {{ transform:translate3d(-6%,-10%,0); }} to {{ transform:translate3d(6%,10%,0); }} }}
     @keyframes pulse {{ 0%,100% {{ transform:scale(.96); opacity:.5; }} 50% {{ transform:scale(1.05); opacity:1; }} }}

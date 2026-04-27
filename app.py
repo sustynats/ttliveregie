@@ -3001,6 +3001,7 @@ def render_connection_panel() -> None:
 def render_toggle_panel() -> None:
     section("Sichtbarkeit")
     st.session_state.background_visible_control = bool(st.session_state.get("show_background", True))
+    st.session_state.stage_image_visible_control = bool(st.session_state.get("show_stage_image", False))
     toggles = [
         ("show_topic", "Thema anzeigen"),
         ("show_cloud", "Keyword-Cloud anzeigen"),
@@ -3008,7 +3009,6 @@ def render_toggle_panel() -> None:
         ("show_countdown", "Countdown anzeigen"),
         ("show_clock", "Live-Uhr anzeigen"),
         ("show_live_since", "Live seit Uhrzeit anzeigen"),
-        ("show_stage_image", "Buehnenbild anzeigen"),
         ("show_animations", "Animationen anzeigen"),
         ("show_motion_layers", "Bewegung anzeigen"),
         ("show_heatmap", "Heatmap anzeigen"),
@@ -3018,6 +3018,12 @@ def render_toggle_panel() -> None:
     ]
     for key, label in toggles:
         st.toggle(label, key=key)
+    st.toggle(
+        "Buehnenbild anzeigen",
+        key="stage_image_visible_control",
+        on_change=sync_stage_image_visibility,
+        disabled=not bool(st.session_state.get("active_stage_image_id")),
+    )
     st.toggle("Hintergrundbild anzeigen", key="background_visible_control", on_change=sync_background_visibility)
 
 
@@ -3491,6 +3497,10 @@ def sync_pdf_visibility() -> None:
 
 def sync_background_visibility() -> None:
     st.session_state.show_background = bool(st.session_state.get("background_visible_control", True))
+
+
+def sync_stage_image_visibility() -> None:
+    st.session_state.show_stage_image = bool(st.session_state.get("stage_image_visible_control", False))
 
 
 def set_background_visible(value: bool) -> None:

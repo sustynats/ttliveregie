@@ -69,6 +69,7 @@ MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
 DEFAULTS_VERSION = 10
+VISUAL_SCHEMA_VERSION = 2
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -823,6 +824,22 @@ def stabilize_image_look_for_layout_switch() -> None:
     st.session_state.overlay_opacity = max(int(st.session_state.get("overlay_opacity", 100) or 100), 100)
 
 
+def repair_legacy_visual_state(source: dict[str, Any] | None = None) -> None:
+    source = source or {}
+    legacy_visuals = int(source.get("visual_schema_version", 0) or 0) < VISUAL_SCHEMA_VERSION
+    weak_type = int(st.session_state.get("topic_font_weight", 850) or 850) < 650
+    tiny_type = int(st.session_state.get("topic_text_size", 90) or 90) < 70
+    over_dark = int(st.session_state.get("bg_dim", 12) or 12) > 28
+    under_lit = int(st.session_state.get("bg_brightness", 125) or 125) < 118
+
+    if legacy_visuals or weak_type or tiny_type:
+        apply_layout_typography(st.session_state.get("layout", "Neon Pop"))
+    if legacy_visuals or over_dark or under_lit:
+        stabilize_image_look_for_layout_switch()
+        st.session_state.user_adjusted_image_look = False
+    st.session_state.visual_schema_version = VISUAL_SCHEMA_VERSION
+
+
 # ---------------------------------------------------------------------------
 # State Management
 # ---------------------------------------------------------------------------
@@ -832,6 +849,7 @@ def init_state() -> None:
     defaults = {
         "target_input": "",
         "defaults_version": DEFAULTS_VERSION,
+        "visual_schema_version": VISUAL_SCHEMA_VERSION,
         "topic": "Worueber sprechen wir gerade?",
         "topic_draft": "Worueber sprechen wir gerade?",
         "highlight_word": "",
@@ -1016,6 +1034,7 @@ def init_state() -> None:
         st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
     if st.session_state.get("ai_model") not in AI_MODELS:
         st.session_state.ai_model = "gemini-2.5-flash"
+    repair_legacy_visual_state({"visual_schema_version": st.session_state.get("visual_schema_version", 0)})
     if is_ai_error_text(st.session_state.get("ai_response", "")):
         st.session_state.ai_error = st.session_state.ai_response
         st.session_state.ai_response = ""
@@ -1066,7 +1085,7 @@ def build_default_scenes() -> dict[str, dict[str, Any]]:
 
 def snapshot_scene() -> dict[str, Any]:
     keys = [
-        "defaults_version",
+        "defaults_version", "visual_schema_version",
         "layout", "cloud_style", "cloud_style_locked", "active_image_id", "show_topic", "show_cloud", "show_highlight", "show_countdown",
         "show_clock", "show_background", "show_animations", "show_safe_zones", "show_overlay_frame",
         "show_live_since",
@@ -1121,6 +1140,7 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.show_clock = True
     st.session_state.show_overlay_frame = False
     st.session_state.defaults_version = DEFAULTS_VERSION
+    st.session_state.visual_schema_version = VISUAL_SCHEMA_VERSION
 
 
 def normalize_motion_effects(effects: Any) -> list[str]:
@@ -1274,6 +1294,7 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         "last_active_scene",
         "overlay_room_id",
         "defaults_version",
+        "visual_schema_version",
     }
     for key, value in payload.items():
         if key in allowed:
@@ -1295,6 +1316,7 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
             st.session_state.highlight_font_family = st.session_state.topic_font_family
         if st.session_state.get("keyword_font_family") not in FONT_PRESETS:
             st.session_state.keyword_font_family = "Inter"
+    repair_legacy_visual_state(payload)
     if is_ai_error_text(st.session_state.get("ai_response", "")):
         st.session_state.ai_error = st.session_state.ai_response
         st.session_state.ai_response = ""

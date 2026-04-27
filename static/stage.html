@@ -261,6 +261,18 @@ body.transparent .veil { background: transparent; display: none; }
 }
 .l-video iframe, .l-video video { width: 100%; height: 100%; display: block; border: 0; }
 
+.l-stage-image {
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+  filter: drop-shadow(0 18px 38px rgba(0,0,0,.45));
+}
+.l-stage-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .l-website {
   z-index: 4;
   border-radius: 14px;
@@ -972,6 +984,23 @@ body.transparent .veil { background: transparent; display: none; }
       }
     } else {
       removeLayer("countdown");
+    }
+
+    // Stage image
+    if (state.show_stage_image && !clearAll && state.stage_image_data) {
+      const el = ensureLayer("stage-image", "l-stage-image");
+      el.dataset.hidden = "0";
+      placeLayer(el, state.stage_image_x || 50, state.stage_image_y || 52, state.stage_image_width || 42, state.stage_image_height || 32);
+      el.style.opacity = (state.stage_image_opacity || 100) / 100;
+      el.style.borderRadius = (state.stage_image_radius || 0) + "px";
+      const fit = state.stage_image_fit === "cover" ? "cover" : state.stage_image_fit === "fill" ? "fill" : "contain";
+      const sig = state.stage_image_data + "|" + fit + "|" + (state.stage_image_name || "");
+      if (el.dataset.sig !== sig) {
+        el.innerHTML = '<img alt="' + escapeHtml(state.stage_image_name || "Buehnenbild") + '" src="' + state.stage_image_data + '" style="object-fit:' + fit + '">';
+        el.dataset.sig = sig;
+      }
+    } else {
+      removeLayer("stage-image");
     }
 
     // Video

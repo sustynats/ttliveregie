@@ -68,7 +68,7 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
-DEFAULTS_VERSION = 7
+DEFAULTS_VERSION = 8
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -875,6 +875,16 @@ def init_state() -> None:
         "bg_fit": "cover",
         "images": [],
         "active_image_id": None,
+        "stage_images": [],
+        "active_stage_image_id": None,
+        "show_stage_image": False,
+        "stage_image_x": 50,
+        "stage_image_y": 52,
+        "stage_image_width": 42,
+        "stage_image_height": 32,
+        "stage_image_opacity": 100,
+        "stage_image_fit": "contain",
+        "stage_image_radius": 10,
         "show_video": False,
         "video_url": "",
         "video_show_background": True,
@@ -1011,6 +1021,8 @@ def snapshot_scene() -> dict[str, Any]:
         "countdown_x", "countdown_y", "countdown_width", "countdown_height",
         "clock_x", "clock_y", "clock_width", "clock_height",
         "ai_x", "ai_y", "ai_width", "ai_height",
+        "show_stage_image", "active_stage_image_id", "stage_image_x", "stage_image_y", "stage_image_width", "stage_image_height",
+        "stage_image_opacity", "stage_image_fit", "stage_image_radius",
         "topic_text_size",
         "highlight_text_size", "countdown_text_size", "clock_text_size", "topic_font_family", "topic_font_weight",
         "topic_letter_spacing", "topic_text_transform", "keyword_font_family", "keyword_font_weight",
@@ -1088,6 +1100,8 @@ def persistent_payload() -> dict[str, Any]:
             "overlay_room_id": st.session_state.overlay_room_id,
             "images": st.session_state.images,
             "active_image_id": st.session_state.active_image_id,
+            "stage_images": st.session_state.stage_images,
+            "active_stage_image_id": st.session_state.active_stage_image_id,
             "scenes": st.session_state.scenes,
             "custom_blacklist_text": st.session_state.custom_blacklist_text,
             "custom_whitelist_text": st.session_state.custom_whitelist_text,
@@ -1192,6 +1206,8 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         "browser_id",
         "images",
         "active_image_id",
+        "stage_images",
+        "active_stage_image_id",
         "scenes",
         "custom_blacklist_text",
         "custom_whitelist_text",
@@ -1788,6 +1804,42 @@ def normalize_image_library() -> None:
         st.session_state.active_image_id = replacement
 
 
+def normalize_stage_image_library() -> None:
+    images = st.session_state.get("stage_images", [])
+    if not isinstance(images, list):
+        st.session_state.stage_images = []
+        st.session_state.active_stage_image_id = None
+        return
+    normalized: list[dict[str, Any]] = []
+    seen_data: set[str] = set()
+    active_id = st.session_state.get("active_stage_image_id")
+    active_data = ""
+    for item in images:
+        if isinstance(item, dict) and item.get("id") == active_id:
+            active_data = item.get("data_url", "")
+            break
+    for index, item in enumerate(images):
+        if not isinstance(item, dict):
+            continue
+        data_url = str(item.get("data_url", "") or "")
+        if not data_url or data_url in seen_data:
+            continue
+        image_id = str(item.get("id") or hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12])
+        image_id = re.sub(r"[^a-zA-Z0-9_-]", "", image_id)[:48] or hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
+        if any(existing.get("id") == image_id for existing in normalized):
+            image_id = f"{hashlib.sha1((data_url + str(index)).encode('utf-8')).hexdigest()[:12]}_{index}"
+        seen_data.add(data_url)
+        item = dict(item)
+        item["id"] = image_id
+        item.setdefault("name", item.get("title", "Buehnenbild"))
+        item.setdefault("title", item.get("name", "Buehnenbild"))
+        normalized.append(item)
+    st.session_state.stage_images = normalized
+    if active_id and not any(item.get("id") == active_id for item in normalized):
+        replacement = next((item.get("id") for item in normalized if active_data and item.get("data_url") == active_data), None)
+        st.session_state.active_stage_image_id = replacement
+
+
 def create_local_prompt_background(prompt: str, errors: list[str] | None = None) -> str:
     seed = int(hashlib.sha1((prompt or "ttliveregie").encode("utf-8")).hexdigest()[:8], 16)
     palettes = [
@@ -2105,6 +2157,22 @@ def active_image_name() -> str:
     for item in st.session_state.images:
         if item["id"] == active_id:
             return item["name"]
+    return ""
+
+
+def active_stage_image_data() -> str:
+    active_id = st.session_state.get("active_stage_image_id")
+    for item in st.session_state.get("stage_images", []):
+        if item.get("id") == active_id:
+            return item.get("data_url", "")
+    return ""
+
+
+def active_stage_image_name() -> str:
+    active_id = st.session_state.get("active_stage_image_id")
+    for item in st.session_state.get("stage_images", []):
+        if item.get("id") == active_id:
+            return item.get("title") or item.get("name") or "Buehnenbild"
     return ""
 
 
@@ -2465,6 +2533,8 @@ def current_overlay_state() -> dict[str, Any]:
             "manual_cloud_words": parse_manual_cloud_words(st.session_state.manual_cloud_words_text),
             "active_image_data": active_image_data(),
             "active_image_name": active_image_name(),
+            "stage_image_data": active_stage_image_data(),
+            "stage_image_name": active_stage_image_name(),
             "aspect": st.session_state.aspect,
             "filtered_total": st.session_state.filtered_total,
             "filtered_top": st.session_state.filtered_top,
@@ -2845,6 +2915,7 @@ def render_toggle_panel() -> None:
         ("show_countdown", "Countdown anzeigen"),
         ("show_clock", "Live-Uhr anzeigen"),
         ("show_live_since", "Live seit Uhrzeit anzeigen"),
+        ("show_stage_image", "Buehnenbild anzeigen"),
         ("show_animations", "Animationen anzeigen"),
         ("show_motion_layers", "Bewegung anzeigen"),
         ("show_heatmap", "Heatmap anzeigen"),
@@ -3102,6 +3173,65 @@ def render_image_panel() -> None:
     st.session_state.bg_pos_y = st.slider("Bild-Position Y", 0, 100, value=st.session_state.bg_pos_y, key="image_bg_pos_y")
     st.session_state.user_adjusted_image_look = True
 
+    st.divider()
+    section("Buehnenbilder")
+    normalize_stage_image_library()
+    st.caption("Diese Bilder liegen als eigenständige Elemente auf der Bühne, nicht als Hintergrund.")
+    stage_uploads = st.file_uploader(
+        "Buehnenbilder hochladen",
+        type=["png", "jpg", "jpeg", "webp"],
+        accept_multiple_files=True,
+        key="stage_image_upload",
+    )
+    if stage_uploads:
+        known = {item["id"] for item in st.session_state.stage_images}
+        for up in stage_uploads:
+            data = up.getvalue()
+            if len(data) > 5 * 1024 * 1024:
+                st.warning(f"{up.name} ist groesser als 5 MB. Bitte kleiner exportieren.")
+                continue
+            image_id = hashlib.sha1(data).hexdigest()[:12]
+            if image_id not in known:
+                st.session_state.stage_images.append({"id": image_id, "name": up.name, "title": up.name, "data_url": image_to_data_url(up)})
+                known.add(image_id)
+                if not st.session_state.active_stage_image_id:
+                    st.session_state.active_stage_image_id = image_id
+                    st.session_state.show_stage_image = True
+
+    if st.session_state.stage_images:
+        for idx, item in enumerate(list(st.session_state.stage_images)):
+            cols = st.columns([1, 1, 1])
+            cols[0].image(item["data_url"], use_container_width=True)
+            new_title = cols[0].text_input("Titel", value=item.get("title", item.get("name", "Buehnenbild")), key=f"stage_img_title_{item['id']}_{idx}", label_visibility="collapsed")
+            item["title"] = new_title
+            cols[1].button(
+                ("Aktiv" if item["id"] == st.session_state.active_stage_image_id else "Einblenden"),
+                key=f"stage_img_on_{item['id']}",
+                use_container_width=True,
+                on_click=activate_stage_image,
+                args=(item["id"],),
+            )
+            if cols[2].button("Löschen", key=f"stage_img_del_{item['id']}", use_container_width=True):
+                st.session_state.stage_images = [img for img in st.session_state.stage_images if img["id"] != item["id"]]
+                if st.session_state.active_stage_image_id == item["id"]:
+                    st.session_state.active_stage_image_id = None
+                    st.session_state.show_stage_image = False
+    st.toggle("Buehnenbild anzeigen", key="show_stage_image", disabled=not bool(st.session_state.active_stage_image_id))
+    csi1, csi2 = st.columns(2)
+    if csi1.button("Buehnenbild zentrieren", key="stage_img_center", use_container_width=True):
+        st.session_state.stage_image_x = 50
+        st.session_state.stage_image_y = 52
+    if csi2.button("Buehnenbild entfernen", key="stage_img_remove", use_container_width=True):
+        st.session_state.active_stage_image_id = None
+        st.session_state.show_stage_image = False
+    st.selectbox("Buehnenbild Fit", ["contain", "cover", "fill"], key="stage_image_fit")
+    st.slider("Buehnenbild Position X", 0, 100, key="stage_image_x")
+    st.slider("Buehnenbild Position Y", 0, 100, key="stage_image_y")
+    st.slider("Buehnenbild Breite", 10, 100, key="stage_image_width")
+    st.slider("Buehnenbild Hoehe", 10, 90, key="stage_image_height")
+    st.slider("Buehnenbild Deckkraft", 0, 100, key="stage_image_opacity")
+    st.slider("Buehnenbild Rundung", 0, 40, key="stage_image_radius")
+
 
 def render_scene_panel() -> None:
     section("Szenen")
@@ -3188,12 +3318,12 @@ def apply_quick_action(action: str) -> None:
     elif action == "clear":
         st.session_state.clear_overlay = not st.session_state.clear_overlay
     elif action == "show_all":
-        for key in ["show_topic", "show_cloud", "show_highlight", "show_countdown", "show_clock", "show_background"]:
+        for key in ["show_topic", "show_cloud", "show_highlight", "show_countdown", "show_clock", "show_background", "show_stage_image"]:
             st.session_state[key] = True
         st.session_state.clear_overlay = False
         st.session_state.minimal_mode = False
     elif action == "hide_all":
-        for key in ["show_topic", "show_cloud", "show_highlight", "show_countdown", "show_clock"]:
+        for key in ["show_topic", "show_cloud", "show_highlight", "show_countdown", "show_clock", "show_stage_image"]:
             st.session_state[key] = False
 
 
@@ -3260,6 +3390,11 @@ def set_background_visible(value: bool) -> None:
 def activate_image(image_id: str) -> None:
     st.session_state.active_image_id = image_id
     set_background_visible(True)
+
+
+def activate_stage_image(image_id: str) -> None:
+    st.session_state.active_stage_image_id = image_id
+    st.session_state.show_stage_image = True
 
 
 def toggle_background_visibility() -> None:

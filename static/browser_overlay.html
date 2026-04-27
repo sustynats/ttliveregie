@@ -396,12 +396,13 @@
             else if (parsed.pathname.indexOf("/shorts/") === 0 || parsed.pathname.indexOf("/embed/") === 0) id = parsed.pathname.split("/").filter(Boolean)[1] || "";
           }
           if (!id) return "";
+          var muted = lastState && lastState.video_muted;
           var qs = new URLSearchParams({
-            autoplay: "1",
+            autoplay: muted ? "1" : "0",
             controls: "1",
             playsinline: "1",
             rel: "0",
-            mute: "0",
+            mute: muted ? "1" : "0",
             enablejsapi: "0"
           });
           return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + qs.toString();
@@ -502,9 +503,9 @@
           if (isYoutube) {
             layer.innerHTML = '<iframe title="Live video" src="' + embed.replace(/"/g, "&quot;") + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
           } else {
-            layer.innerHTML = '<video id="stageVideo" src="' + url.replace(/"/g, "&quot;") + '" controls playsinline autoplay ' + (state.video_muted ? "muted" : "") + '></video>';
+            layer.innerHTML = '<video id="stageVideo" src="' + url.replace(/"/g, "&quot;") + '" controls playsinline ' + (state.video_muted ? "autoplay muted" : "") + '></video>';
             var video = document.getElementById("stageVideo");
-            if (video) {
+            if (video && state.video_muted) {
               video.muted = !!state.video_muted;
               video.play().catch(function () {});
             }

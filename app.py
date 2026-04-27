@@ -1190,7 +1190,7 @@ def readable_url(value: str) -> str:
     return value
 
 
-def youtube_embed_url(value: str) -> str:
+def youtube_embed_url(value: str, autoplay: bool = False, muted: bool = False) -> str:
     url = readable_url(value)
     parsed = urlparse(url)
     host = parsed.netloc.lower()
@@ -1206,7 +1206,11 @@ def youtube_embed_url(value: str) -> str:
             video_id = parts[-1] if parts else ""
     if not video_id:
         return ""
-    return f"https://www.youtube.com/embed/{html.escape(video_id)}?controls=1&rel=0&playsinline=1&enablejsapi=1"
+    params = (
+        f"controls=1&rel=0&playsinline=1&enablejsapi=0"
+        f"&autoplay={1 if autoplay else 0}&mute={1 if muted else 0}"
+    )
+    return f"https://www.youtube-nocookie.com/embed/{html.escape(video_id)}?{params}"
 
 
 def is_youtube_url(value: str) -> bool:
@@ -2025,7 +2029,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     video_html = ""
     if not hidden and show_video:
         video_url = readable_url(state.get("video_url", ""))
-        youtube_url = youtube_embed_url(video_url)
+        video_muted = bool(state.get("video_muted"))
+        youtube_url = youtube_embed_url(video_url, autoplay=video_muted, muted=video_muted)
         if youtube_url:
             video_html = (
                 f'<iframe class="stage-video video-embed" src="{youtube_url}" '
@@ -2036,7 +2041,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
             video_html = (
                 f'<video class="stage-video" src="{html.escape(video_url)}" '
                 f'id="stageVideo" '
-                f'controls playsinline {"muted" if state.get("video_muted") else ""} '
+                f'controls playsinline {"autoplay muted" if video_muted else ""} '
                 f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};object-fit:{html.escape(state.get("video_fit","contain"))};"></video>'
                 f'<div class="video-controls"><button onclick="stageVideo.currentTime=Math.max(0,stageVideo.currentTime-10)">-10</button><button onclick="stageVideo.paused?stageVideo.play():stageVideo.pause()">Play/Pause</button><button onclick="stageVideo.currentTime=stageVideo.currentTime+10">+10</button></div>'
             )
@@ -2789,7 +2794,7 @@ def render_media_panel() -> None:
         value=st.session_state.video_url,
         placeholder="https://.../video.mp4 oder direkte WebM/HLS-URL",
     )
-    st.caption("Direkte MP4/WebM/HLS-Links laufen im Videoplayer. YouTube-Links werden automatisch als YouTube-Embed eingebettet.")
+    st.caption("Direkte MP4/WebM/HLS-Links laufen im Videoplayer. YouTube wird als Embed geladen. Autoplay mit Ton wird von Browserquellen oft blockiert; stabiler ist Play per Klick oder stummgeschaltetes Autoplay.")
     v1, v2 = st.columns(2)
     with v1:
         st.toggle("Video anzeigen", key="show_video")
@@ -3063,7 +3068,9 @@ def main() -> None:
     else:
         load_persisted_state_once()
         st.markdown(css_for_streamlit(), unsafe_allow_html=True)
-    st_autorefresh(interval=2500 if overlay_mode else 4000, key="refresh")
+    video_active = bool(st.session_state.get("show_video") and st.session_state.get("video_url"))
+    if overlay_mode or not video_active:
+        st_autorefresh(interval=2500 if overlay_mode else 4000, key="refresh")
     update_countdown()
 
     if overlay_mode:

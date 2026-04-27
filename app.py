@@ -59,14 +59,16 @@ RUNTIME_STATE_FILE = APP_DIR / ".overlay_runtime_state.json"
 SERVER_STATE_DIR = APP_DIR / ".ttliveregie_profiles"
 STATIC_DIR = APP_DIR / "static"
 STATIC_OVERLAY_FILE = STATIC_DIR / "browser_overlay.html"
+STATIC_STAGE_FILE = STATIC_DIR / "stage.html"
 LOCAL_STORAGE_KEY = "ttliveregie_state_v2"
 LOCAL_BROWSER_ID_KEY = "ttliveregie_browser_id_v1"
+LOCAL_EDIT_QUEUE_KEY = "ttl_stage_edit_queue"
 COMMENT_WINDOW_SECONDS = 4 * 60
 KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
-DEFAULTS_VERSION = 3
+DEFAULTS_VERSION = 4
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -777,8 +779,8 @@ def init_state() -> None:
         "countdown_running": False,
         "countdown_started_at": None,
         "show_live_since": True,
-        "layout": "Neon Pop",
-        "cloud_style": "Color Burst",
+        "layout": "Editorial Dark",
+        "cloud_style": "Magazine Cloud",
         "cloud_style_locked": False,
         "aspect": DEFAULT_ASPECT,
         "show_topic": True,
@@ -789,27 +791,27 @@ def init_state() -> None:
         "show_background": True,
         "show_animations": True,
         "show_safe_zones": False,
-        "show_overlay_frame": True,
+        "show_overlay_frame": False,
         "minimal_mode": False,
         "freeze_keywords": False,
         "focus_mode": False,
         "clear_overlay": False,
-        "stage_edit_mode": True,
-        "bg_dim": 25,
+        "stage_edit_mode": False,
+        "bg_dim": 22,
         "bg_blur": 0,
-        "bg_brightness": 115,
-        "keyword_size": 55,
-        "keyword_density": 45,
+        "bg_brightness": 110,
+        "keyword_size": 50,
+        "keyword_density": 38,
         "animation_intensity": 55,
         "show_motion_layers": True,
-        "motion_effects": ["Aerosol-Wolken", "Lichtstaub"],
-        "motion_opacity": 42,
+        "motion_effects": ["Aerosol-Wolken"],
+        "motion_opacity": 30,
         "motion_speed": 55,
         "show_heatmap": False,
         "heatmap_opacity": 28,
         "cloud_pos_x": 50,
-        "cloud_pos_y": 50,
-        "cloud_width": 58,
+        "cloud_pos_y": 55,
+        "cloud_width": 60,
         "cloud_height": 58,
         "cloud_tilt": 0,
         "topic_x": 36,
@@ -832,12 +834,12 @@ def init_state() -> None:
         "ai_y": 70,
         "ai_width": 58,
         "ai_height": 26,
-        "topic_text_size": 100,
+        "topic_text_size": 92,
         "highlight_text_size": 100,
         "countdown_text_size": 100,
         "clock_text_size": 100,
-        "topic_font_family": "Poppins",
-        "topic_font_weight": 850,
+        "topic_font_family": "Playfair Display",
+        "topic_font_weight": 800,
         "topic_letter_spacing": 0,
         "topic_text_transform": "normal",
         "keyword_font_family": "Inter",
@@ -872,6 +874,7 @@ def init_state() -> None:
         "website_mode": "Auto",
         "website_preview_title": "",
         "website_preview_text": "",
+        "website_preview_image": "",
         "website_preview_error": "",
         "website_proxy_html": "",
         "website_proxy_error": "",
@@ -1007,17 +1010,26 @@ def snapshot_scene() -> dict[str, Any]:
 
 
 def apply_visual_defaults_v3() -> None:
-    st.session_state.layout = "Neon Pop"
-    st.session_state.cloud_style = "Color Burst"
+    """Legacy migration helper, jetzt v4. Setzt sanfte, neutrale Default-Optik."""
+    st.session_state.layout = "Editorial Dark"
+    st.session_state.cloud_style = "Magazine Cloud"
     st.session_state.show_highlight = False
     st.session_state.auto_highlight = False
-    st.session_state.keyword_size = min(int(st.session_state.get("keyword_size", 55) or 55), 55)
-    st.session_state.keyword_density = min(int(st.session_state.get("keyword_density", 45) or 45), 45)
+    st.session_state.keyword_size = min(int(st.session_state.get("keyword_size", 50) or 50), 55)
+    st.session_state.keyword_density = min(int(st.session_state.get("keyword_density", 38) or 38), 45)
     st.session_state.cloud_pos_x = 50
-    st.session_state.cloud_pos_y = 50
-    st.session_state.cloud_width = min(int(st.session_state.get("cloud_width", 58) or 58), 58)
-    st.session_state.cloud_height = min(int(st.session_state.get("cloud_height", 58) or 58), 58)
-    st.session_state.topic_font_family = "Poppins"
+    st.session_state.cloud_pos_y = 55
+    st.session_state.cloud_width = min(int(st.session_state.get("cloud_width", 60) or 60), 64)
+    st.session_state.cloud_height = min(int(st.session_state.get("cloud_height", 58) or 58), 60)
+    st.session_state.topic_font_family = "Playfair Display"
+    st.session_state.keyword_font_family = "Inter"
+    st.session_state.motion_effects = ["Aerosol-Wolken"]
+    st.session_state.motion_opacity = 30
+    st.session_state.bg_dim = 22
+    st.session_state.bg_brightness = max(110, int(st.session_state.get("bg_brightness", 115) or 115))
+    st.session_state.show_clock = True
+    st.session_state.show_overlay_frame = False
+    st.session_state.stage_edit_mode = False
     st.session_state.defaults_version = DEFAULTS_VERSION
 
 
@@ -1088,10 +1100,16 @@ def static_state_file(room_id: str | None = None) -> Path:
 
 
 def static_overlay_url(base_url: str, room_id: str, **params: str) -> str:
-    query = {"overlay": "1", "room": safe_profile_id(room_id)}
+    """URL der reinen Bühnen-HTML ohne Streamlit-Chrome.
+
+    Zeigt direkt auf static/stage.html — TikTok Live Studio sieht damit kein
+    Streamlit, keine Login-Wall, kein Spinner. Backwards-compat für ?overlay=1
+    bleibt im Streamlit-Routing erhalten (leitet ebenfalls auf stage.html weiter).
+    """
+    query: dict[str, str] = {"room": safe_profile_id(room_id)}
     query.update({key: value for key, value in params.items() if value})
     encoded = "&".join(f"{key}={value}" for key, value in query.items())
-    return f"{base_url.rstrip('/')}/app/static/{STATIC_OVERLAY_FILE.name}?{encoded}"
+    return f"{base_url.rstrip('/')}/app/static/{STATIC_STAGE_FILE.name}?{encoded}"
 
 
 def apply_persistent_payload(payload: dict[str, Any]) -> None:
@@ -1312,6 +1330,41 @@ def is_known_iframe_blocked(value: str) -> bool:
     return host in IFRAME_BLOCKED_DOMAINS or any(host.endswith(f".{domain}") for domain in IFRAME_BLOCKED_DOMAINS)
 
 
+def fetch_website_og(url: str) -> dict[str, str]:
+    """Holt og:title/og:description/og:image für eine URL — best effort.
+
+    Wird vom Bühnen-iFrame als Fallback genutzt, wenn iframe oder Screenshot
+    scheitern. Sehr klein gehalten, weil es im selben Request-Pfad wie
+    fetch_website_preview läuft.
+    """
+    cleaned = readable_url(url)
+    out = {"title": "", "description": "", "image": ""}
+    if not cleaned or requests is None or BeautifulSoup is None:
+        return out
+    try:
+        resp = requests.get(
+            cleaned,
+            timeout=6,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; TTLiveRegie/1.0; +https://ttliveregie.streamlit.app)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        ot = soup.find("meta", property="og:title")
+        out["title"] = (ot.get("content") if ot else "") or (soup.title.get_text(" ", strip=True) if soup.title else "")
+        od = soup.find("meta", property="og:description") or soup.find("meta", attrs={"name": "description"})
+        out["description"] = od.get("content", "") if od else ""
+        oi = soup.find("meta", property="og:image")
+        out["image"] = oi.get("content", "") if oi else ""
+        if out["image"] and not out["image"].startswith(("http://", "https://")):
+            out["image"] = urljoin(cleaned, out["image"])
+    except Exception:
+        pass
+    return out
+
+
 def fetch_website_preview(url: str) -> tuple[bool, str, str]:
     url = readable_url(url)
     if not url:
@@ -1429,6 +1482,108 @@ def brighten_stage() -> None:
     st.session_state.clear_overlay = False
     set_background_visible(True)
     st.session_state.user_adjusted_image_look = True
+
+
+_LAYER_FIELD_MAP: dict[str, dict[str, str]] = {
+    "topic": {"x": "topic_x", "y": "topic_y", "w": "topic_width", "h": "topic_height", "show": "show_topic"},
+    "highlight": {"x": "highlight_x", "y": "highlight_y", "w": "highlight_width", "h": "highlight_height", "show": "show_highlight"},
+    "cloud": {"x": "cloud_pos_x", "y": "cloud_pos_y", "w": "cloud_width", "h": "cloud_height", "show": "show_cloud"},
+    "countdown": {"x": "countdown_x", "y": "countdown_y", "w": "countdown_width", "h": "countdown_height", "show": "show_countdown"},
+    "clock": {"x": "clock_x", "y": "clock_y", "w": "clock_width", "h": "clock_height", "show": "show_clock"},
+    "video": {"x": "video_x", "y": "video_y", "w": "video_width", "h": "video_height", "show": "show_video"},
+    "website": {"x": "website_x", "y": "website_y", "w": "website_width", "h": "website_height", "show": "show_website"},
+    "pdf": {"x": "pdf_x", "y": "pdf_y", "w": "pdf_width", "h": "pdf_height", "show": "show_pdf"},
+    "ai": {"x": "ai_x", "y": "ai_y", "w": "ai_width", "h": "ai_height", "show": "show_ai_card"},
+}
+_LAYER_MIN_SIZE: dict[str, tuple[int, int]] = {
+    "topic": (18, 8), "highlight": (16, 8), "cloud": (35, 35),
+    "countdown": (18, 8), "clock": (12, 6), "video": (15, 10),
+    "website": (20, 15), "pdf": (20, 20), "ai": (20, 12),
+}
+
+
+def _apply_layer_payload(layer_id: str, payload: dict[str, Any]) -> bool:
+    fields = _LAYER_FIELD_MAP.get(layer_id)
+    if not fields:
+        return False
+    changed = False
+    if payload.get("hide"):
+        st.session_state[fields["show"]] = False
+        return True
+    min_w, min_h = _LAYER_MIN_SIZE.get(layer_id, (8, 8))
+    for src, dst, lo, hi in (("x", fields["x"], 0, 100), ("y", fields["y"], 0, 100)):
+        if src in payload:
+            try:
+                v = float(payload[src])
+            except (TypeError, ValueError):
+                continue
+            v = max(lo, min(hi, v))
+            st.session_state[dst] = int(round(v))
+            changed = True
+    if "w" in payload:
+        try:
+            v = max(min_w, min(100, float(payload["w"])))
+            st.session_state[fields["w"]] = int(round(v))
+            changed = True
+        except (TypeError, ValueError):
+            pass
+    if "h" in payload:
+        try:
+            v = max(min_h, min(100, float(payload["h"])))
+            st.session_state[fields["h"]] = int(round(v))
+            changed = True
+        except (TypeError, ValueError):
+            pass
+    if layer_id == "cloud" and changed:
+        st.session_state.user_adjusted_cloud_position = True
+    return changed
+
+
+def drain_stage_edit_queue() -> None:
+    """Polls localStorage für Drag/Resize-Events der Bühne und wendet sie an.
+
+    Die Bühnen-iFrame schreibt postMessage-Events in localStorage. Wir holen
+    sie hier, applizieren die Layer-Updates auf st.session_state, leeren die
+    Queue und triggern einen Rerun, damit der neue State an die Bühne fließt.
+    """
+    if streamlit_js_eval is None:
+        return
+    try:
+        raw = streamlit_js_eval(
+            js_expressions=(
+                "(function(){"
+                f"var q = localStorage.getItem({json.dumps(LOCAL_EDIT_QUEUE_KEY)});"
+                f"localStorage.removeItem({json.dumps(LOCAL_EDIT_QUEUE_KEY)});"
+                "return q || '';"
+                "})()"
+            ),
+            key=f"edit_drain_{int(time.time() // 2)}",
+        )
+    except Exception:
+        raw = None
+    if not raw:
+        return
+    try:
+        events = json.loads(raw)
+    except Exception:
+        return
+    if not isinstance(events, list) or not events:
+        return
+    any_change = False
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") != "ttl-stage-edit":
+            continue
+        layer_id = ev.get("id", "")
+        payload = ev.get("payload") or {}
+        if isinstance(payload, dict) and _apply_layer_payload(layer_id, payload):
+            any_change = True
+    if any_change:
+        try:
+            st.rerun()
+        except Exception:
+            pass
 
 
 def apply_stage_editor_params() -> None:
@@ -2842,6 +2997,8 @@ def current_overlay_state() -> dict[str, Any]:
     with rt.lock:
         live_started_at = rt.started_at
     live_duration = format_duration(time.time() - live_started_at) if live_started_at else "00:00:00"
+    # Theme-Farben mit reinschreiben, damit stage.html sie direkt setzen kann
+    theme = THEMES.get(st.session_state.layout, THEMES["Editorial Dark"])
     state.update(
         {
             "keywords": st.session_state.keywords or st.session_state.get("last_keywords_snapshot", []),
@@ -2855,6 +3012,19 @@ def current_overlay_state() -> dict[str, Any]:
             "live_duration": live_duration,
             "sentiment": chat_sentiment_state(),
             "stage_edit_mode": st.session_state.get("stage_edit_mode", False),
+            "bg": theme.get("bg", "#050608"),
+            "panel": theme.get("panel", "rgba(8,10,16,.62)"),
+            "text_color": theme.get("text", "#fff7ea"),
+            "muted": theme.get("muted", "#d6c9b8"),
+            "accent": theme.get("accent", "#ff4fd8"),
+            "accent2": theme.get("accent2", "#29f3ff"),
+            "accent3": theme.get("accent3", "#f8ff4d"),
+            "glow": theme.get("glow", "rgba(255,79,216,.30)"),
+            "website_og": {
+                "title": st.session_state.get("website_preview_title", ""),
+                "description": st.session_state.get("website_preview_text", ""),
+                "image": st.session_state.get("website_preview_image", ""),
+            },
         }
     )
     if st.session_state.auto_highlight and not st.session_state.highlight_word and st.session_state.keywords:
@@ -2904,10 +3074,42 @@ def load_overlay_state() -> dict[str, Any]:
 
 
 def render_stage(state: dict[str, Any], height: int = 860) -> None:
-    st.components.v1.html(render_overlay_html(state), height=height, scrolling=False)
+    """Bettet die statische stage.html als iframe ins Regiepult ein.
+
+    Das Streamlit-Rerun rührt den Iframe-Inhalt nicht an — der DOM bleibt
+    stabil, Fonts laden einmal, kein Flackern. Das Iframe pollt selbst die
+    JSON-State-Datei und re-rendert clientseitig per DOM-Diff.
+    """
+    room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
+    edit = "1" if st.session_state.get("stage_edit_mode") else "0"
+    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}&_={int(time.time() // 30)}"
+    iframe_html = f"""
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+html,body{{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}}
+iframe{{display:block;width:100%;height:100%;border:0;background:#050608;}}
+</style></head><body>
+<iframe id="stageframe" src="{html.escape(src)}" allow="autoplay; encrypted-media; fullscreen" referrerpolicy="no-referrer"></iframe>
+<script>
+window.addEventListener("message", function (ev) {{
+  if (!ev.data || ev.data.type !== "ttl-stage-edit") return;
+  // Forward to Streamlit parent so the queue can be drained on next rerun
+  try {{
+    var queue = JSON.parse(localStorage.getItem("ttl_stage_edit_queue") || "[]");
+    queue.push(ev.data);
+    while (queue.length > 30) queue.shift();
+    localStorage.setItem("ttl_stage_edit_queue", JSON.stringify(queue));
+  }} catch (e) {{}}
+  try {{ if (window.parent && window.parent !== window) window.parent.postMessage(ev.data, "*"); }} catch (e) {{}}
+}}, false);
+</script>
+</body></html>
+"""
+    st.components.v1.html(iframe_html, height=height, scrolling=False)
 
 
 def render_static_overlay_redirect() -> None:
+    """Wenn jemand ?overlay=1 öffnet (alte URL), auf stage.html weiterleiten."""
     room = safe_profile_id(st.query_params.get("room", st.session_state.overlay_room_id))
     params = {
         "debug": st.query_params.get("debug", ""),
@@ -2944,7 +3146,7 @@ def render_static_overlay_redirect() -> None:
         </script>
         <div class="overlay-redirect">
             <div>
-                <div>Overlay wird geladen...</div>
+                <div>Bühne wird geladen...</div>
                 <a href="{html.escape(target)}" target="_self">{html.escape(absolute_target)}</a>
             </div>
         </div>
@@ -3423,12 +3625,26 @@ def render_media_panel() -> None:
             st.session_state.website_preview_error = ""
             st.session_state.website_mode = "Website-Vorschau"
             st.session_state.show_website = True
+            og = fetch_website_og(st.session_state.website_url)
+            st.session_state.website_preview_image = og.get("image", "")
             st.success("Vorschau geladen.")
         else:
             st.session_state.website_preview_error = text
             st.error(text)
+    if st.button("Live-Screenshot anzeigen", key="website_screenshot_load", use_container_width=True):
+        if st.session_state.website_url:
+            st.session_state.website_mode = "Screenshot"
+            st.session_state.show_website = True
+            st.success("Screenshot-Modus aktiviert. Die Bühne lädt das Bild von image.thum.io.")
+        else:
+            st.warning("Bitte erst eine URL eingeben.")
     st.toggle("Website anzeigen", key="show_website")
-    st.selectbox("Website Darstellung", ["Auto", "Website-Proxy", "Website-Vorschau", "Interaktiver Browser", "Link-Karte"], key="website_mode")
+    st.selectbox(
+        "Website Darstellung",
+        ["Auto", "Screenshot", "Website-Proxy", "Website-Vorschau", "Interaktiver Browser", "Link-Karte"],
+        key="website_mode",
+        help="Auto: erst iframe versuchen, bei bekannten Blockern direkt Screenshot. Screenshot: image.thum.io. Vorschau/Link-Karte: OG-Daten.",
+    )
     if st.session_state.website_url and is_known_iframe_blocked(st.session_state.website_url):
         st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Website-Vorschau, Link-Karte oder eine offizielle Embed-/Video-URL.")
     c3, c4 = st.columns(2)
@@ -3538,7 +3754,7 @@ def render_typography_panel() -> None:
         f'<div class="font-preview compact" style="font-family:{font_stack(st.session_state.keyword_font_family)}">Keyword Vorschau: demokratie dialog fakten live</div>',
         unsafe_allow_html=True,
     )
-    st.slider("Keyword Basisgröße", 55, 180, key="keyword_size")
+    st.slider("Keyword Basisgröße", 30, 180, key="keyword_size")
     st.slider("Keyword Gewicht", 300, 950, key="keyword_font_weight", step=50)
     st.toggle("Zufällige Keyword-Gewichtung", key="keyword_random_weight")
     st.selectbox("Highlight Font", fonts, key="highlight_font_family")
@@ -3617,7 +3833,7 @@ def render_persistence_panel() -> None:
     cloud_url = f"https://ttliveregie.streamlit.app/?overlay=1&room={st.session_state.overlay_room_id}"
     debug_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, debug="1")
     transparent_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, bg="transparent")
-    test_url = "https://ttliveregie.streamlit.app/app/static/browser_overlay.html?overlay=1&test=1"
+    test_url = f"https://ttliveregie.streamlit.app/app/static/{STATIC_STAGE_FILE.name}?test=1"
     health_url = "https://ttliveregie.streamlit.app/app/static/ttls_health.html"
     render_copyable_url("Lokale TTLS Browserquelle (empfohlen bei privater Cloud-App)", static_local_url, "ttls_local_overlay")
     render_copyable_url("Cloud TTLS Browserquelle (nur wenn Streamlit-App public ist)", static_cloud_url, "ttls_overlay")
@@ -3652,45 +3868,61 @@ def render_persistence_panel() -> None:
 def render_control_panel() -> None:
     render_director_header()
     render_quick_actions()
-    if st.button("Save Scene", key="quick_save_scene_top", use_container_width=True):
+    if st.button("Szene jetzt speichern", key="quick_save_scene_top", use_container_width=True):
         scene_name = st.session_state.last_active_scene or f"Szene {len(st.session_state.scenes) + 1}"
         st.session_state.scenes[scene_name] = snapshot_scene()
         st.session_state.last_active_scene = scene_name
-    with st.expander("1. Verbindung", expanded=True):
-        render_section_note("Nur hier startest oder stoppst du den TikTok-Live-Chat. Im Overlay erscheinen keine Usernamen oder Einzelkommentare.")
-        render_connection_panel()
-    with st.expander("2. Szenen", expanded=False):
+
+    tab_buehne, tab_live, tab_inhalte, tab_medien, tab_stil, tab_szenen, tab_backup = st.tabs(
+        ["Bühne", "Live", "Inhalte", "Medien", "Stil", "Szenen", "Backup"]
+    )
+
+    with tab_buehne:
+        with st.expander("Sichtbarkeit", expanded=True):
+            render_toggle_panel()
+        with st.expander("Thema & Highlight", expanded=True):
+            render_topic_panel()
+            render_highlight_panel()
+
+    with tab_live:
+        with st.expander("Verbindung", expanded=True):
+            render_section_note("Nur hier startest oder stoppst du den TikTok-Live-Chat. Auf der Bühne erscheinen keine Usernamen oder Einzelkommentare.")
+            render_connection_panel()
+        with st.expander("Safety", expanded=False):
+            render_safety_panel()
+
+    with tab_inhalte:
+        with st.expander("Countdown & Uhr", expanded=True):
+            render_countdown_panel()
+        with st.expander("KI-Check", expanded=False):
+            render_ai_panel()
+
+    with tab_medien:
+        with st.expander("Bilder", expanded=True):
+            render_section_note("Ausblenden hält das aktive Bild bereit. Löschen entfernt es aus der Bildbibliothek.")
+            render_image_panel()
+        with st.expander("Video / Website / PDF", expanded=False):
+            render_section_note("Externe Seiten: Auto-Modus versucht erst iframe, schaltet bei Blockern auf Live-Screenshot um.")
+            render_media_panel()
+
+    with tab_stil:
+        with st.expander("Layouts", expanded=True):
+            render_section_note("Ein Layout setzt Farbwelt, Typografie und Standard-Cloud. Cloud-Lock fixiert deine manuellen Cloud-Einstellungen.")
+            render_layout_panel()
+        with st.expander("Cloud / Position", expanded=False):
+            render_section_note("Hier verschiebst du die Tag-Cloud frei. X/Y wirken live; oder ziehe sie direkt auf der Bühne im Edit-Modus.")
+            render_faders()
+        with st.expander("Bewegung / Heatmap", expanded=False):
+            render_section_note("Transparente Motion-Layer laufen über dem Hintergrund, damit TikTok eine dezente Bewegung erkennt.")
+            render_motion_panel()
+        with st.expander("Typografie", expanded=False):
+            render_typography_panel()
+
+    with tab_szenen:
         render_section_note("Szenen speichern den kompletten visuellen Zustand. Nutze sie live wie Regie-Cues.")
         render_scene_panel()
-    with st.expander("3. Sichtbarkeit", expanded=False):
-        render_toggle_panel()
-    with st.expander("4. Thema & Highlight", expanded=True):
-        render_topic_panel()
-        render_highlight_panel()
-    with st.expander("5. Countdown & Uhr", expanded=False):
-        render_countdown_panel()
-    with st.expander("6. Layouts", expanded=False):
-        render_section_note("Ein Layout setzt Farbwelt, typografische Grundstimmung und Standard-Cloud. Manuelle Cloud-Einstellungen bleiben fixiert, wenn der Cloud-Lock aktiv ist.")
-        render_layout_panel()
-    with st.expander("7. Cloud", expanded=False):
-        render_section_note("Hier verschiebst du die Tag-Cloud frei auf der Bühne. X/Y reagieren live.")
-        render_faders()
-    with st.expander("8. Medien / Web", expanded=False):
-        render_section_note("Video und Website liegen direkt auf der Bühne. Die eingebetteten Controls sind in der Bühnenfläche klickbar.")
-        render_media_panel()
-    with st.expander("9. Bewegung / Heatmap", expanded=False):
-        render_section_note("Transparente Motion-Layer laufen über dem Hintergrund, damit TikTok eine dezente Bewegung erkennt.")
-        render_motion_panel()
-    with st.expander("10. Bilder", expanded=False):
-        render_section_note("Ausblenden hält das aktive Bild bereit. Löschen entfernt es aus der lokalen Bildbibliothek.")
-        render_image_panel()
-    with st.expander("11. KI-Check", expanded=False):
-        render_ai_panel()
-    with st.expander("12. Typografie", expanded=False):
-        render_typography_panel()
-    with st.expander("13. Safety", expanded=False):
-        render_safety_panel()
-    with st.expander("14. Persistenz / Backup", expanded=False):
+
+    with tab_backup:
         render_persistence_panel()
 
 
@@ -3703,29 +3935,27 @@ def main() -> None:
     init_state()
     overlay_mode = st.query_params.get("overlay", "0") == "1"
     if overlay_mode:
+        # Alte URLs auf stage.html umleiten — die Streamlit-Seite hostet kein
+        # eigenes Overlay-DOM mehr.
         st.markdown(css_for_overlay_mode(), unsafe_allow_html=True)
-        if st.query_params.get("native", "0") != "1":
-            render_static_overlay_redirect()
-            return
-    else:
-        load_persisted_state_once()
-        st.markdown(css_for_streamlit(), unsafe_allow_html=True)
-        apply_stage_editor_params()
-    video_active = bool(st.session_state.get("show_video") and st.session_state.get("video_url"))
-    if overlay_mode or not video_active:
-        st_autorefresh(interval=2500 if overlay_mode else 4000, key="refresh")
-    update_countdown()
-
-    if overlay_mode:
-        state = load_overlay_state()
-        st.components.v1.html(render_overlay_html(state), height=1080, scrolling=False)
+        render_static_overlay_redirect()
         return
+
+    load_persisted_state_once()
+    st.markdown(css_for_streamlit(), unsafe_allow_html=True)
+    apply_stage_editor_params()
+    drain_stage_edit_queue()
+    # Auto-refresh nur fürs Regiepult (Bühne pollt selbst). Wenn Video aktiv
+    # ist, halten wir die Frequenz niedriger, damit die Sidebar nicht stört.
+    video_active = bool(st.session_state.get("show_video") and st.session_state.get("video_url"))
+    st_autorefresh(interval=6000 if video_active else 4000, key="refresh")
+    update_countdown()
 
     drain_live_comments()
     compute_keywords()
     persist_overlay_state()
 
-    left, right = st.columns([0.28, 0.72], gap="medium")
+    left, right = st.columns([0.30, 0.70], gap="medium")
     with left:
         with st.container(key="control_panel_scroll"):
             render_control_panel()
@@ -3733,7 +3963,8 @@ def main() -> None:
         with st.container(key="stage_panel_fixed"):
             top_cols = st.columns([1, 0.22])
             with top_cols[0]:
-                st.markdown("### Bühne / Overlay-Fläche")
+                edit_label = "Edit-Modus AKTIV" if st.session_state.get("stage_edit_mode") else "Bühne"
+                st.markdown(f"### {edit_label}")
             with top_cols[1]:
                 st.selectbox("Format", ["9:16", "16:9"], key="aspect", label_visibility="collapsed")
             render_stage(current_overlay_state(), height=900)

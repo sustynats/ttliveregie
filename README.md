@@ -15,13 +15,30 @@ Dann im Browser oeffnen:
 
 - Regiepult: `http://localhost:8501`
 - Overlay-only: `http://localhost:8501?overlay=1`
-- TT-Live-Studio-Browserquelle: im Regiepult oben (direkt unter dem Header) erscheint **eine** prominente URL als TikTok-Live-Studio-Browserquelle. Genau diese URL in TTLS einfuegen.
-  - Lokal: `http://localhost:8501/app/static/stage.html?room=deine-id`
-  - Streamlit Cloud: `https://ttliveregie.streamlit.app/~/+/static/stage.html?room=deine-id`
-- Erweiterte Varianten (Debug, Test, Transparent) liegen im Regiepult unter `Backup -> Erweiterte URLs`.
-- Health-Test ohne Parameter: `https://ttliveregie.streamlit.app/~/+/static/ttls_health.html` (lokal: `http://localhost:8501/app/static/ttls_health.html`).
+- TT-Live-Studio-Browserquelle: im Regiepult oben (direkt unter dem Header) erscheint **eine** prominente URL als TikTok-Live-Studio-Browserquelle. Diese zeigt auf GitHub Pages und ist immer ohne Login erreichbar:
+  - `https://sustynats.github.io/ttliveregie/stage.html?room=<deine-id>&gist=<user>/<gist-id>`
+- Erweiterte Varianten (Debug, Test, Transparent, Lokal) liegen im Regiepult unter `Backup -> Erweiterte URLs`.
 
-Wichtig: Streamlit Cloud serviert statische Dateien unter `/~/+/static/` immer ohne Auth-Wall, auch wenn die App ansonsten Auth-protected ist. Der alte `/app/static/`-Pfad triggerte einen Redirect auf `/-/login` und ist deshalb auf Cloud nicht mehr im Einsatz. Lokal (`streamlit run app.py`) bleibt `/app/static/` der korrekte Pfad. Die App erkennt den Host automatisch und baut die richtige URL fuer dich.
+### Warum nicht Streamlit Cloud direkt?
+
+`https://<app>.streamlit.app/app/static/...` triggert auf Streamlit Cloud einen Auth-Redirect (HTTP 303 -> /-/login), solange die App nicht wirklich public ist. Der Pfad `/~/+/static/...` liefert nur die Streamlit-Frontend-Shell. Beide taugen nicht als TTLS-Browserquelle. Die App hostet die Buehne deshalb auf GitHub Pages und syncht den Overlay-State ueber einen GitHub Gist. Lokal (`streamlit run`) klappt `http://localhost:8501/app/static/stage.html` weiterhin ohne Gist.
+
+## Gist-Sync einrichten (einmalig)
+
+Damit die Cloud-Buehne Live-Updates aus der Regie sieht, pusht das Regiepult den State in einen GitHub Gist. Die Buehne pollt die Raw-URL alle 2 Sekunden.
+
+1. Personal Access Token erstellen: `https://github.com/settings/tokens/new?scopes=gist&description=ttliveregie` (Scope `gist` reicht).
+2. Im Regiepult unter `Backup -> Gist-Sync (TTLS-Live-Updates)` den Token einfuegen.
+3. Auf `Neuen Gist anlegen` klicken oder eine bestehende Gist-ID + Username einfuegen.
+4. `Sync jetzt testen` -> bei Erfolg erscheint die TTLS-URL oben mit `&gist=<user>/<id>` und die Buehne ist live.
+
+Token bleibt nur in der Streamlit-Session (kein Disk-Write). Optional persistent via `.streamlit/secrets.toml`:
+
+```toml
+GITHUB_GIST_TOKEN = "ghp_..."
+GITHUB_GIST_ID = "deine-gist-id"
+GITHUB_GIST_USER = "sustynats"
+```
 
 ## Nutzung mit TikTok Live Studio
 
@@ -49,8 +66,8 @@ Wenn die Buehne durch Bild-/Overlay-Regler zu dunkel wird, oben im Regiepult `Au
 1. Repository mit `app.py` und `requirements.txt` deployen.
 2. Main file path: `app.py`.
 3. Nach dem Deploy die App im Browser oeffnen. Browser-Speicherung funktioniert getrennt pro Browser/Geraet ueber localStorage.
-4. Static Serving ist in `.streamlit/config.toml` aktiviert. Auf Streamlit Cloud liegt die Buehne unter `https://<dein-app>.streamlit.app/~/+/static/stage.html?room=deine-id` (nicht unter `/app/static/...` -- das ist Cloud-seitig hinter Auth).
-5. Static-Pfade unter `/~/+/static/` sind auf Streamlit Cloud immer public erreichbar, unabhaengig davon, ob die App selbst Auth verlangt. Damit funktioniert die TTLS-Browserquelle auch bei privaten Apps.
+4. Die TTLS-Buehne wird **nicht** ueber Streamlit Cloud ausgeliefert (Auth-Wall), sondern ueber GitHub Pages aus dem `docs/`-Ordner dieses Repos. Pages wurde einmalig per GitHub-API aktiviert (Source: `main` Branch, Folder `/docs`). Aenderungen an `docs/stage.html` sind automatisch nach ~30 s live.
+5. Live-Updates aus der Regie laufen ueber einen GitHub Gist (siehe `Gist-Sync einrichten`). Damit funktionieren TTLS-Browserquellen auch bei privaten Streamlit-Apps.
 
 Optional fuer den KI-Check in den Streamlit-Secrets hinterlegen:
 

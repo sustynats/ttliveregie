@@ -2772,10 +2772,10 @@ def render_static_overlay_redirect() -> None:
         </style>
         <meta http-equiv="refresh" content="0; url={html.escape(target)}">
         <script>
-        const target = {json.dumps(target)};
-        const absoluteTarget = {json.dumps(absolute_target)};
+        var target = {json.dumps(target)};
+        var absoluteTarget = {json.dumps(absolute_target)};
         try {{ window.location.replace(target); }} catch (error) {{}}
-        setTimeout(() => {{
+        setTimeout(function () {{
             try {{ window.top.location.href = target; }} catch (error) {{}}
         }}, 80);
         </script>

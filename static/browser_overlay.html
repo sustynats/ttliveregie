@@ -404,9 +404,12 @@
     <main id="stage" class="stage frame">
       <div id="bg" class="bg"></div>
       <div class="veil"></div>
-      <div id="topic" class="topic"></div>
-      <div id="clock" class="clock"></div>
-      <div id="cloud" class="cloud"></div>
+      <div id="topic" class="topic">Overlay lädt...</div>
+      <div id="clock" class="clock"><b>LIVE 00:00:00</b><span>Browserquelle startet</span></div>
+      <div id="cloud" class="cloud">
+        <span class="kw c0" style="--x:50%;--y:48%;--r:0deg;--s:1.15;--w:900;--d:9s;--delay:0s">TTLS</span>
+        <span class="kw c1" style="--x:58%;--y:56%;--r:-4deg;--s:.9;--w:800;--d:10s;--delay:-1s">bereit</span>
+      </div>
       <div id="countdown" class="countdown hidden"></div>
       <div id="videoLayer" class="video-layer hidden"></div>
       <div id="videoControls" class="video-controls hidden">
@@ -421,12 +424,21 @@
   </div>
   <script>
     (function () {
-      var params = new URLSearchParams(window.location.search);
-      var room = (params.get("room") || "default").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || "default";
-      var debug = params.get("debug") === "1";
-      var test = params.get("test") === "1";
-      var transparent = params.get("transparent") === "1" || params.get("bg") === "transparent";
-      var pollMs = Math.max(1000, Number(params.get("poll") || 2500));
+      function getParam(name) {
+        var query = window.location.search || "";
+        if (query.charAt(0) === "?") query = query.slice(1);
+        var parts = query.split("&");
+        for (var i = 0; i < parts.length; i++) {
+          var pair = parts[i].split("=");
+          if (decodeURIComponent(pair[0] || "") === name) return decodeURIComponent((pair[1] || "").replace(/\+/g, " "));
+        }
+        return "";
+      }
+      var room = (getParam("room") || "default").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || "default";
+      var debug = getParam("debug") === "1";
+      var test = getParam("test") === "1";
+      var transparent = getParam("transparent") === "1" || getParam("bg") === "transparent";
+      var pollMs = Math.max(1000, Number(getParam("poll") || 2500));
       var lastState = null;
       var currentVideoKey = "";
       var currentWebsiteKey = "";
@@ -492,15 +504,8 @@
           }
           if (!id) return "";
           var muted = lastState && lastState.video_muted;
-          var qs = new URLSearchParams({
-            autoplay: muted ? "1" : "0",
-            controls: "1",
-            playsinline: "1",
-            rel: "0",
-            mute: muted ? "1" : "0",
-            enablejsapi: "0"
-          });
-          return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + qs.toString();
+          var qs = "autoplay=" + (muted ? "1" : "0") + "&controls=1&playsinline=1&rel=0&mute=" + (muted ? "1" : "0") + "&enablejsapi=0";
+          return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + qs;
         } catch (e) {
           return "";
         }
@@ -651,10 +656,19 @@
       function loadPdfJs() {
         if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
         if (pdfJsLoading) return pdfJsLoading;
-        pdfJsLoading = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs").then(function (lib) {
-          window.pdfjsLib = lib;
-          lib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
-          return lib;
+        pdfJsLoading = new Promise(function (resolve, reject) {
+          var script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+          script.onload = function () {
+            if (!window.pdfjsLib) {
+              reject(new Error("PDF.js nicht verfügbar"));
+              return;
+            }
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+            resolve(window.pdfjsLib);
+          };
+          script.onerror = function () { reject(new Error("PDF.js konnte nicht geladen werden")); };
+          document.head.appendChild(script);
         });
         return pdfJsLoading;
       }
@@ -671,22 +685,29 @@
           return renderPdfPages();
         });
       }
-      async function renderPdfPages() {
+      function renderPdfPages() {
         var viewer = document.getElementById("pdfViewer");
         var zoomLabel = document.getElementById("pdfZoom");
         if (!viewer || !pdfDoc) return;
         viewer.innerHTML = "";
         if (zoomLabel) zoomLabel.textContent = Math.round(pdfScale * 100) + "%";
-        for (var pageNo = 1; pageNo <= pdfDoc.numPages; pageNo++) {
-          var page = await pdfDoc.getPage(pageNo);
+        var pageNo = 1;
+        function renderNext() {
+          if (pageNo > pdfDoc.numPages) return Promise.resolve();
+          return pdfDoc.getPage(pageNo).then(function (page) {
           var viewport = page.getViewport({ scale: pdfScale });
           var canvas = document.createElement("canvas");
           canvas.className = "pdf-page";
           canvas.width = Math.floor(viewport.width);
           canvas.height = Math.floor(viewport.height);
           viewer.appendChild(canvas);
-          await page.render({ canvasContext: canvas.getContext("2d"), viewport: viewport }).promise;
+            return page.render({ canvasContext: canvas.getContext("2d"), viewport: viewport }).promise;
+          }).then(function () {
+            pageNo += 1;
+            return renderNext();
+          });
         }
+        return renderNext();
       }
       document.getElementById("videoBack").addEventListener("click", function () {
         var video = document.getElementById("stageVideo");
@@ -771,7 +792,7 @@
           var minutes = Math.floor(remaining / 60);
           var seconds = Math.floor(remaining % 60);
           countdown.innerHTML = "<b>" + escText(state.countdown_title || "") + "</b><span>" +
-            String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0") + "</span>";
+            pad2(minutes) + ":" + pad2(seconds) + "</span>";
           countdown.classList.remove("hidden");
         } else {
           countdown.classList.add("hidden");
@@ -805,21 +826,39 @@
           scenes_count: 0
         };
       }
+      function pad2(value) {
+        value = String(Math.max(0, Number(value) || 0));
+        return value.length < 2 ? "0" + value : value;
+      }
+      function getJson(url, done) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", url, true);
+        xhr.setRequestHeader("Cache-Control", "no-store");
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState !== 4) return;
+          if (xhr.status >= 200 && xhr.status < 300 || xhr.status === 0 && xhr.responseText) {
+            try { done(null, JSON.parse(xhr.responseText)); }
+            catch (e) { done(e); }
+          } else {
+            done(new Error("state " + xhr.status));
+          }
+        };
+        xhr.onerror = function () { done(new Error("XHR fehlgeschlagen")); };
+        xhr.send(null);
+      }
       function poll() {
         var url = "overlay_state_" + room + ".json?t=" + Date.now();
-        fetch(url, { cache: "no-store" })
-          .then(function (res) {
-            if (!res.ok) throw new Error("state " + res.status);
-            return res.json();
-          })
-          .then(render)
-          .catch(function (err) {
-            if (lastState) {
-              if (debug) setDebug("Overlay geladen\nRoom-ID: " + room + "\nletzter Refresh: " + new Date().toLocaleTimeString() + "\nPolling-Fehler: " + err.message);
-              return;
-            }
-            render(fallbackState());
-          });
+        getJson(url, function (err, state) {
+          if (!err) {
+            render(state);
+            return;
+          }
+          if (lastState) {
+            if (debug) setDebug("Overlay geladen\nRoom-ID: " + room + "\nletzter Refresh: " + new Date().toLocaleTimeString() + "\nPolling-Fehler: " + err.message);
+            return;
+          }
+          render(fallbackState());
+        });
       }
       poll();
       window.setInterval(poll, pollMs);

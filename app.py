@@ -1454,6 +1454,50 @@ def store_generated_background(data: bytes | str, mime_type: str = "image/png", 
     return f"Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} generiert und aktiviert."
 
 
+def create_local_prompt_background(prompt: str, errors: list[str] | None = None) -> str:
+    seed = int(hashlib.sha1((prompt or "ttliveregie").encode("utf-8")).hexdigest()[:8], 16)
+    palettes = [
+        ("#111827", "#ff4fd8", "#29f3ff", "#d9ff42"),
+        ("#16120f", "#d6b15e", "#fff7ea", "#7dd3fc"),
+        ("#20151d", "#f2a6c7", "#8b5cf6", "#f7d6a4"),
+        ("#071014", "#36f2b4", "#5a7dff", "#f5f0e8"),
+        ("#f5efe4", "#e11d48", "#2563eb", "#facc15"),
+    ]
+    bg, c1, c2, c3 = palettes[seed % len(palettes)]
+    circles = []
+    for idx in range(12):
+        local = (seed >> (idx % 16)) + idx * 7919
+        x = 8 + (local % 84)
+        y = 6 + ((local // 7) % 88)
+        r = 10 + ((local // 13) % 24)
+        color = [c1, c2, c3][idx % 3]
+        opacity = 0.10 + ((local % 9) / 100)
+        circles.append(f'<circle cx="{x}%" cy="{y}%" r="{r}%" fill="{color}" opacity="{opacity:.2f}"/>')
+    svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+      <rect width="1080" height="1920" fill="{bg}"/>
+      <defs>
+        <filter id="blur"><feGaussianBlur stdDeviation="52"/></filter>
+        <linearGradient id="shade" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0" stop-color="{c1}" stop-opacity=".22"/>
+          <stop offset=".52" stop-color="{c2}" stop-opacity=".12"/>
+          <stop offset="1" stop-color="{c3}" stop-opacity=".18"/>
+        </linearGradient>
+        <pattern id="grid" width="90" height="90" patternUnits="userSpaceOnUse">
+          <path d="M90 0H0V90" fill="none" stroke="#ffffff" stroke-opacity=".045" stroke-width="2"/>
+        </pattern>
+      </defs>
+      <g filter="url(#blur)">{''.join(circles)}</g>
+      <rect width="1080" height="1920" fill="url(#shade)"/>
+      <rect width="1080" height="1920" fill="url(#grid)"/>
+      <rect x="0" y="0" width="1080" height="1920" fill="none" stroke="{c1}" stroke-opacity=".28" stroke-width="2"/>
+    </svg>
+    """
+    message = store_generated_background(svg.encode("utf-8"), "image/svg+xml", "Lokaler Prompt-Fallback")
+    detail = " ".join(errors[:2]) if errors else ""
+    return f"{message} Google war gerade nicht verfuegbar; lokaler abstrakter Prompt-Fallback wurde erstellt. {detail}".strip()
+
+
 def response_parts(response: Any) -> list[Any]:
     parts = list(getattr(response, "parts", []) or [])
     for candidate in getattr(response, "candidates", []) or []:
@@ -1489,6 +1533,8 @@ def image_generation_models_to_try(selected: str) -> list[str]:
             "gemini-2.5-flash-image",
             "gemini-2.5-flash-image-preview",
             "gemini-2.0-flash-preview-image-generation",
+            "imagen-4.0-fast-generate-001",
+            "imagen-3.0-generate-002",
         ]
     fallback = {
         "gemini-2.5-flash-image": ["gemini-2.5-flash-image-preview", "gemini-2.0-flash-preview-image-generation"],
@@ -1559,9 +1605,9 @@ def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool,
             except Exception as model_exc:
                 errors.append(friendly_image_error(model_exc, model))
                 continue
-        return False, "Kein Bildmodell war erfolgreich. " + " | ".join(errors[:4])
+        return True, create_local_prompt_background(prompt, errors)
     except Exception as exc:
-        return False, friendly_image_error(exc, selected_model)
+        return True, create_local_prompt_background(prompt, [friendly_image_error(exc, selected_model)])
 
 
 def chat_sentiment_state() -> dict[str, Any]:

@@ -681,7 +681,15 @@ def compute_keywords(force: bool = False) -> None:
             }
         )
 
-    st.session_state.keywords = next_keywords
+    if next_keywords:
+        st.session_state.keywords = next_keywords
+        st.session_state.last_keywords_snapshot = next_keywords
+    elif not st.session_state.chat_window and st.session_state.get("keywords"):
+        st.session_state.last_keywords_snapshot = st.session_state.keywords
+    elif not st.session_state.chat_window and st.session_state.get("last_keywords_snapshot") and not force:
+        st.session_state.keywords = st.session_state.last_keywords_snapshot
+    else:
+        st.session_state.keywords = []
     st.session_state.filtered_total += total_filtered
     st.session_state.filtered_top = filtered_counts.most_common(12)
     st.session_state.last_keyword_update = now
@@ -855,6 +863,7 @@ def init_state() -> None:
         "overlay_room_id": "",
         "chat_window": deque(maxlen=5000),
         "keywords": [],
+        "last_keywords_snapshot": [],
         "last_keyword_update": 0.0,
         "filtered_total": 0,
         "filtered_top": [],
@@ -882,6 +891,8 @@ def init_state() -> None:
         st.session_state.ai_response = ""
         st.session_state.show_ai_card = False
     st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
+    if st.session_state.get("keywords") and not st.session_state.get("last_keywords_snapshot"):
+        st.session_state.last_keywords_snapshot = st.session_state.keywords
     if "bg_brightness" not in st.session_state:
         st.session_state.bg_brightness = 115
     if not st.session_state.get("user_adjusted_cloud_position"):
@@ -1853,7 +1864,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         if item["word"] in manual_set:
             continue
         word = html.escape(item["word"])
-        size = item.get("size", 1) * keyword_size
+        size = max(0.72, item.get("size", 1) * keyword_size)
         x, y, rotation = cloud_style_position(cloud_style, item["word"], i, len(keywords))
         fresh = " fresh" if item.get("fresh") else ""
         color_class = f" c{i % 6}"
@@ -2038,7 +2049,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .layout-clean .readability {{ background:linear-gradient(90deg, rgba(255,255,255,.68), rgba(255,255,255,.24) 65%, rgba(255,255,255,.06)); }}
     .layout-soft .readability {{ background:radial-gradient(circle at 18% 26%, rgba(176,78,111,.16), transparent 28%), linear-gradient(90deg, rgba(255,246,239,.72), rgba(255,246,239,.2) 62%, rgba(255,246,239,.05)); }}
     .grain {{ position:absolute; inset:0; z-index:-2; background-image:linear-gradient(115deg, transparent, rgba(255,255,255,.035), transparent); opacity:.55; }}
-    .motion-layer {{ position:absolute; inset:0; z-index:3; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
+    .motion-layer {{ position:absolute; inset:0; z-index:1; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
     .fx {{ position:absolute; inset:-18%; display:block; }}
     .fx-aerosolwolken {{
       background:
@@ -2067,7 +2078,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .fx-regen {{ background:repeating-linear-gradient(110deg, transparent 0 16px, rgba(160,200,255,.18) 17px 19px, transparent 20px 34px); animation: rain calc(5s / var(--motionSpeed)) linear infinite; }}
     .fx-funkeln {{ background:radial-gradient(circle at 20% 20%, rgba(255,255,255,.75), transparent 1.5%), radial-gradient(circle at 70% 36%, rgba(255,255,255,.55), transparent 1.2%), radial-gradient(circle at 52% 80%, rgba(255,255,255,.45), transparent 1.4%); animation:flicker calc(4s / var(--motionSpeed)) ease-in-out infinite alternate; }}
     .fx-wellen {{ background:repeating-radial-gradient(ellipse at 50% 60%, transparent 0 8%, rgba(255,255,255,.12) 9%, transparent 10%); animation:pulse calc(10s / var(--motionSpeed)) ease-in-out infinite; }}
-    .heatmap {{ position:absolute; inset:0; z-index:2; pointer-events:none; opacity:calc(var(--heatOpacity) * var(--heatIntensity)); mix-blend-mode:screen; }}
+    .heatmap {{ position:absolute; inset:0; z-index:1; pointer-events:none; opacity:calc(var(--heatOpacity) * var(--heatIntensity)); mix-blend-mode:screen; }}
     .heatmap.positive {{ background:radial-gradient(circle at 28% 28%, rgba(57,255,146,.55), transparent 32%), radial-gradient(circle at 70% 62%, rgba(80,180,255,.22), transparent 30%); }}
     .heatmap.negative {{ background:radial-gradient(circle at 30% 30%, rgba(255,57,86,.55), transparent 34%), radial-gradient(circle at 65% 68%, rgba(255,176,58,.28), transparent 32%); }}
     .heatmap.neutral {{ background:radial-gradient(circle at 38% 38%, rgba(255,255,255,.20), transparent 34%), radial-gradient(circle at 74% 58%, rgba(120,160,255,.18), transparent 32%); }}
@@ -2087,7 +2098,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .cloud {{
       position:absolute; left:var(--cloudX); top:var(--cloudY); width:var(--cloudW); height:var(--cloudH);
-      transform:translate(-50%,-50%) rotate(var(--cloudTilt)); transform-origin:center; z-index:2;
+      transform:translate(-50%,-50%) rotate(var(--cloudTilt)); transform-origin:center; z-index:3;
     }}
     .kw {{
       position:absolute; left:var(--x); top:var(--y); transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s));
@@ -2215,7 +2226,7 @@ def current_overlay_state() -> dict[str, Any]:
     live_duration = format_duration(time.time() - live_started_at) if live_started_at else "00:00:00"
     state.update(
         {
-            "keywords": st.session_state.keywords,
+            "keywords": st.session_state.keywords or st.session_state.get("last_keywords_snapshot", []),
             "manual_cloud_words": parse_manual_cloud_words(st.session_state.manual_cloud_words_text),
             "active_image_data": active_image_data(),
             "active_image_name": active_image_name(),
@@ -2584,6 +2595,7 @@ def apply_quick_action(action: str) -> None:
     elif action == "reset":
         st.session_state.chat_window.clear()
         st.session_state.keywords = []
+        st.session_state.last_keywords_snapshot = []
         st.session_state.filtered_top = []
         st.session_state.filtered_total = 0
     elif action == "auto_highlight_action":
@@ -2609,6 +2621,9 @@ def apply_quick_action(action: str) -> None:
 
 def render_faders() -> None:
     section("Cloud / Visual Mixing")
+    live_count = len(st.session_state.get("keywords") or st.session_state.get("last_keywords_snapshot") or [])
+    manual_count = len(parse_manual_cloud_words(st.session_state.manual_cloud_words_text))
+    st.caption(f"Cloud-Status: {live_count} Live-Keywords · {manual_count} manuelle Wörter · sichtbar: {'ja' if st.session_state.show_cloud and not st.session_state.clear_overlay and not st.session_state.minimal_mode else 'nein'}")
     selected_style = st.selectbox("Cloud-Stil", CLOUD_STYLES, index=CLOUD_STYLES.index(st.session_state.cloud_style) if st.session_state.cloud_style in CLOUD_STYLES else 0)
     if selected_style != st.session_state.cloud_style:
         st.session_state.cloud_style = selected_style
@@ -2620,6 +2635,13 @@ def render_faders() -> None:
     st.slider("Cloud Position Y", 0, 100, key="cloud_pos_y")
     if st.session_state.cloud_pos_x != 50 or st.session_state.cloud_pos_y != 50:
         st.session_state.user_adjusted_cloud_position = True
+    if st.button("Cloud zentrieren", key="center_cloud", use_container_width=True):
+        st.session_state.cloud_pos_x = 50
+        st.session_state.cloud_pos_y = 50
+        st.session_state.cloud_width = 58
+        st.session_state.cloud_height = 58
+        st.session_state.cloud_tilt = 0
+        st.session_state.user_adjusted_cloud_position = False
     st.slider("Cloud-Breite", 35, 90, key="cloud_width")
     st.slider("Cloud-Höhe", 35, 90, key="cloud_height")
     st.slider("Cloud Rotation / Tilt", -10, 10, key="cloud_tilt")

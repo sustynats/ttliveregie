@@ -68,7 +68,7 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
-DEFAULTS_VERSION = 6
+DEFAULTS_VERSION = 7
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -2116,6 +2116,27 @@ def css_for_streamlit() -> str:
     return """
     <style>
     .stApp { background: #0d0f12; color: #f7f2ea; }
+    /* Streamlit markiert waehrend Auto-Refresh/Rerun alte Elemente kurz als
+       "stale" und blendet sie ab. Im Live-Regiepult wirkt das wie ein
+       unerwuenschtes Atmen der Buehne. Wir halten die Anzeige stabil; die
+       eigentliche Buehne aktualisiert sich ueber ihr eigenes Polling. */
+    .stApp [data-testid="stAppViewContainer"],
+    .stApp [data-testid="stMain"],
+    .stApp [data-testid="stVerticalBlock"],
+    .stApp [data-testid="stHorizontalBlock"],
+    .stApp [data-testid="stElementContainer"],
+    .stApp .element-container,
+    .stApp .stElementContainer,
+    .stApp .st-key-control_panel_scroll,
+    .stApp .st-key-stage_panel_fixed,
+    .stApp iframe,
+    .stApp [data-stale="true"],
+    .stApp [class*="stale"],
+    .stApp [class*="Stale"] {
+        opacity: 1 !important;
+        transition: none !important;
+        animation: none !important;
+    }
     [data-testid="stHeader"] { background: transparent; }
     [data-testid="stSidebar"] { display: none; }
     /* Streamlit-Header (1440x60, z-index 999990) deckt unseren Topbar zu und

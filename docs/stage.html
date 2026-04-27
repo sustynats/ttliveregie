@@ -638,6 +638,13 @@ body.transparent .veil { background: transparent; display: none; }
     }
     return [Math.max(7, Math.min(93, x)), Math.max(8, Math.min(92, y)), rot];
   }
+  function burstColor(idx) {
+    const colors = [
+      "var(--accent)", "var(--accent2)", "var(--accent3)",
+      "#ffffff", "#ff8a3d", "#baff29", "#29f3ff", "#ff6bd6"
+    ];
+    return colors[Math.abs(idx) % colors.length];
+  }
 
   // ---- Smart embed (iframe → screenshot → og-card) ----------------------
   function screenshotUrl(url) {
@@ -895,21 +902,24 @@ body.transparent .veil { background: transparent; display: none; }
       const density = Math.max(0, Math.min(kws.length, Math.floor(32 * (state.keyword_density || 45) / 100)));
       const cs = state.cloud_style || "Magazine Cloud";
       let html = "";
+      const sig = cs + "|" + kws.map(k => [k.word, k.size, k.fresh].join(":")).join(",") + "|m:" + manuals.join(",");
       for (let i = 0; i < density; i++) {
         const k = kws[i];
         if (!k) break;
         const [x, y, rot] = stylePos(cs, k.word, i, total);
         const sf = (k.size || 1).toFixed(2);
-        html += '<span class="kw" data-fresh="' + (k.fresh ? 1 : 0) + '" style="left:' + x + '%;top:' + y + '%;--kwSizeFactor:' + sf + ';--kwRot:' + rot + 'deg;--kwDelay:' + (i * 0.18).toFixed(2) + 's">' + escapeHtml(k.word) + '</span>';
+        const burst = cs === "Color Burst" ? ";color:" + burstColor(i) + ";text-shadow:0 0 18px " + burstColor(i) + ",0 5px 18px rgba(0,0,0,.55)" : "";
+        html += '<span class="kw" data-fresh="' + (k.fresh ? 1 : 0) + '" style="left:' + x + '%;top:' + y + '%;--kwSizeFactor:' + sf + ';--kwRot:' + rot + 'deg;--kwDelay:' + (i * 0.18).toFixed(2) + 's' + burst + '">' + escapeHtml(k.word) + '</span>';
       }
       manuals.forEach((m, idx) => {
         const [x, y, rot] = stylePos(cs, m, idx + 100, total);
-        html += '<span class="kw manual" style="left:' + x + '%;top:' + y + '%;--kwSizeFactor:1.2;--kwRot:' + rot + 'deg;--kwDelay:' + (idx * 0.20).toFixed(2) + 's">' + escapeHtml(m) + '</span>';
+        const burst = cs === "Color Burst" ? ";color:" + burstColor(idx + density) + ";background:none" : "";
+        html += '<span class="kw manual" style="left:' + x + '%;top:' + y + '%;--kwSizeFactor:1.2;--kwRot:' + rot + 'deg;--kwDelay:' + (idx * 0.20).toFixed(2) + 's' + burst + '">' + escapeHtml(m) + '</span>';
       });
       // Only replace innerHTML if changed (avoids needless animation reset)
-      if (el.dataset.kwSig !== html.length + ":" + (kws[0] ? kws[0].word : "")) {
+      if (el.dataset.kwSig !== sig) {
         el.innerHTML = html;
-        el.dataset.kwSig = html.length + ":" + (kws[0] ? kws[0].word : "");
+        el.dataset.kwSig = sig;
       }
     } else {
       removeLayer("cloud");

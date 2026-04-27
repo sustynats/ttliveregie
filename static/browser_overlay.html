@@ -169,6 +169,48 @@
     }
     .countdown b { display: block; color: var(--muted); font-size: 14px; }
     .countdown span { display: block; font-size: 34px; font-weight: 900; line-height: 1; margin-top: 2px; }
+    .video-layer {
+      position: absolute;
+      left: var(--video-x, 50%);
+      top: var(--video-y, 54%);
+      width: var(--video-w, 70%);
+      height: var(--video-h, 40%);
+      transform: translate(-50%, -50%);
+      z-index: 7;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.20);
+      background: #050608;
+      box-shadow: 0 18px 48px rgba(0,0,0,.42);
+      opacity: var(--video-o, 1);
+    }
+    .video-layer iframe,
+    .video-layer video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      border: 0;
+      background: #050608;
+    }
+    .video-layer video { object-fit: var(--video-fit, contain); }
+    .video-controls {
+      position: absolute;
+      left: var(--video-x, 50%);
+      top: calc(var(--video-y, 54%) + var(--video-h, 40%) / 2 + 20px);
+      transform: translateX(-50%);
+      z-index: 8;
+      display: flex;
+      gap: 8px;
+    }
+    .video-controls button {
+      border: 1px solid rgba(255,255,255,.25);
+      background: rgba(0,0,0,.62);
+      color: #fff;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-weight: 900;
+      cursor: pointer;
+    }
     .debug {
       position: absolute;
       left: 14px;
@@ -213,6 +255,12 @@
       <div id="clock" class="clock"></div>
       <div id="cloud" class="cloud"></div>
       <div id="countdown" class="countdown hidden"></div>
+      <div id="videoLayer" class="video-layer hidden"></div>
+      <div id="videoControls" class="video-controls hidden">
+        <button type="button" id="videoBack">-10</button>
+        <button type="button" id="videoPlay">Play/Pause</button>
+        <button type="button" id="videoForward">+10</button>
+      </div>
       <div id="debug" class="debug hidden"></div>
     </main>
   </div>
@@ -225,6 +273,7 @@
       var transparent = params.get("transparent") === "1" || params.get("bg") === "transparent";
       var pollMs = Math.max(1000, Number(params.get("poll") || 2500));
       var lastState = null;
+      var currentVideoKey = "";
 
       if (transparent) document.body.classList.add("transparent");
       if (test) {
@@ -263,6 +312,100 @@
           r: idx % 8 === 0 ? 90 : [-6, -2, 0, 0, 4, 7][idx % 6]
         };
       }
+      function readableUrl(value) {
+        value = escText(value).trim();
+        if (!value) return "";
+        if (/^https?:\/\//i.test(value)) return value;
+        return "https://" + value;
+      }
+      function youtubeEmbedUrl(value) {
+        var url = readableUrl(value);
+        if (!url) return "";
+        try {
+          var parsed = new URL(url);
+          var host = parsed.hostname.replace(/^www\./, "");
+          var id = "";
+          if (host === "youtu.be") id = parsed.pathname.split("/").filter(Boolean)[0] || "";
+          if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
+            if (parsed.pathname === "/watch") id = parsed.searchParams.get("v") || "";
+            else if (parsed.pathname.indexOf("/shorts/") === 0 || parsed.pathname.indexOf("/embed/") === 0) id = parsed.pathname.split("/").filter(Boolean)[1] || "";
+          }
+          if (!id) return "";
+          var qs = new URLSearchParams({
+            autoplay: "1",
+            controls: "1",
+            playsinline: "1",
+            rel: "0",
+            mute: "0",
+            enablejsapi: "0"
+          });
+          return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + qs.toString();
+        } catch (e) {
+          return "";
+        }
+      }
+      function updateVideo(state, hidden) {
+        var layer = document.getElementById("videoLayer");
+        var controls = document.getElementById("videoControls");
+        var showVideo = !hidden && !!state.show_video && !!state.video_url;
+        if (!showVideo) {
+          layer.classList.add("hidden");
+          controls.classList.add("hidden");
+          currentVideoKey = "";
+          layer.innerHTML = "";
+          return false;
+        }
+        var url = readableUrl(state.video_url);
+        var embed = youtubeEmbedUrl(url);
+        var isYoutube = !!embed;
+        var key = (isYoutube ? "yt:" + embed : "video:" + url);
+        var videoX = clamp(state.video_x || 50, 0, 100) + "%";
+        var videoY = clamp(state.video_y || 54, 0, 100) + "%";
+        var videoW = clamp(state.video_width || 70, 5, 100) + "%";
+        var videoH = clamp(state.video_height || 40, 5, 100) + "%";
+        layer.style.setProperty("--video-x", videoX);
+        layer.style.setProperty("--video-y", videoY);
+        layer.style.setProperty("--video-w", videoW);
+        layer.style.setProperty("--video-h", videoH);
+        layer.style.setProperty("--video-o", clamp((state.video_opacity || 100) / 100, 0, 1));
+        layer.style.setProperty("--video-fit", state.video_fit || "contain");
+        controls.style.setProperty("--video-x", videoX);
+        controls.style.setProperty("--video-y", videoY);
+        controls.style.setProperty("--video-w", videoW);
+        controls.style.setProperty("--video-h", videoH);
+
+        if (key !== currentVideoKey) {
+          currentVideoKey = key;
+          if (isYoutube) {
+            layer.innerHTML = '<iframe title="Live video" src="' + embed.replace(/"/g, "&quot;") + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
+          } else {
+            layer.innerHTML = '<video id="stageVideo" src="' + url.replace(/"/g, "&quot;") + '" controls playsinline autoplay ' + (state.video_muted ? "muted" : "") + '></video>';
+            var video = document.getElementById("stageVideo");
+            if (video) {
+              video.muted = !!state.video_muted;
+              video.play().catch(function () {});
+            }
+          }
+        } else if (!isYoutube) {
+          var existing = document.getElementById("stageVideo");
+          if (existing) existing.muted = !!state.video_muted;
+        }
+        layer.classList.remove("hidden");
+        controls.classList.toggle("hidden", isYoutube);
+        return true;
+      }
+      document.getElementById("videoBack").addEventListener("click", function () {
+        var video = document.getElementById("stageVideo");
+        if (video) video.currentTime = Math.max(0, video.currentTime - 10);
+      });
+      document.getElementById("videoPlay").addEventListener("click", function () {
+        var video = document.getElementById("stageVideo");
+        if (video) video.paused ? video.play().catch(function () {}) : video.pause();
+      });
+      document.getElementById("videoForward").addEventListener("click", function () {
+        var video = document.getElementById("stageVideo");
+        if (video) video.currentTime = video.currentTime + 10;
+      });
       function render(state) {
         lastState = state || {};
         var root = document.documentElement;
@@ -274,6 +417,7 @@
         var countdown = document.getElementById("countdown");
         var hidden = !!state.clear_overlay;
         var showCloud = !!state.show_cloud && !hidden && !state.minimal_mode;
+        var videoVisible = updateVideo(state, hidden);
 
         root.style.setProperty("--cloud-x", clamp(state.cloud_pos_x || 50, 0, 100) + "%");
         root.style.setProperty("--cloud-y", clamp(state.cloud_pos_y || 50, 0, 100) + "%");
@@ -282,7 +426,7 @@
         root.style.setProperty("--dim", clamp((state.bg_dim || 22) / 100, 0, .55));
 
         stage.className = "stage" + (state.show_overlay_frame !== false ? " frame" : "");
-        if (state.active_image_data && state.show_background !== false) {
+        if (state.active_image_data && state.show_background !== false && (!videoVisible || state.video_show_background !== false)) {
           bg.style.backgroundImage = "url(" + JSON.stringify(state.active_image_data) + ")";
           bg.style.backgroundSize = state.bg_fit || "cover";
           bg.style.backgroundPosition = (state.bg_pos_x || 50) + "% " + (state.bg_pos_y || 50) + "%";

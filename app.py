@@ -794,7 +794,7 @@ def init_state() -> None:
         "freeze_keywords": False,
         "focus_mode": False,
         "clear_overlay": False,
-        "stage_edit_mode": True,
+        "stage_edit_mode": False,
         "bg_dim": 25,
         "bg_blur": 0,
         "bg_brightness": 115,
@@ -1408,27 +1408,32 @@ def apply_stage_editor_params() -> None:
         st.session_state.topic_y = int(round(y))
         st.session_state.topic_width = int(round(max(18, w)))
         st.session_state.topic_height = int(round(max(8, h)))
+        st.session_state.topic_text_size = int(round(max(55, min(180, h / 24 * 100))))
     elif target == "highlight":
         st.session_state.highlight_x = int(round(x))
         st.session_state.highlight_y = int(round(y))
         st.session_state.highlight_width = int(round(max(16, w)))
         st.session_state.highlight_height = int(round(max(8, h)))
+        st.session_state.highlight_text_size = int(round(max(55, min(190, h / 18 * 100))))
     elif target == "cloud":
         st.session_state.cloud_pos_x = int(round(x))
         st.session_state.cloud_pos_y = int(round(y))
         st.session_state.cloud_width = int(round(max(35, w)))
         st.session_state.cloud_height = int(round(max(35, h)))
+        st.session_state.keyword_size = int(round(max(35, min(130, h / 58 * 55))))
         st.session_state.user_adjusted_cloud_position = True
     elif target == "countdown":
         st.session_state.countdown_x = int(round(x))
         st.session_state.countdown_y = int(round(y))
         st.session_state.countdown_width = int(round(max(18, w)))
         st.session_state.countdown_height = int(round(max(8, h)))
+        st.session_state.countdown_text_size = int(round(max(65, min(160, h / 12 * 100))))
     elif target == "clock":
         st.session_state.clock_x = int(round(x))
         st.session_state.clock_y = int(round(y))
         st.session_state.clock_width = int(round(max(12, w)))
         st.session_state.clock_height = int(round(max(6, h)))
+        st.session_state.clock_text_size = int(round(max(65, min(160, h / 9 * 100))))
     elif target == "video":
         st.session_state.video_x = int(round(x))
         st.session_state.video_y = int(round(y))
@@ -1449,6 +1454,8 @@ def apply_stage_editor_params() -> None:
         st.session_state.ai_y = int(round(y))
         st.session_state.ai_width = int(round(max(20, w)))
         st.session_state.ai_height = int(round(max(12, h)))
+    for key in ("stage_edit_target", "stage_edit_x", "stage_edit_y", "stage_edit_w", "stage_edit_h"):
+        st.query_params.pop(key, None)
 
 
 def google_api_key() -> str:
@@ -2717,11 +2724,11 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         if (!stage) return;
         function pct(value, total) {{ return Math.max(0, Math.min(100, value / Math.max(1, total) * 100)); }}
         const targetMap = {{
-          topic: {{ selector: ".topic", x: "--tx", y: "--ty", w: "--tw", h: "--th" }},
-          highlight: {{ selector: ".highlight", x: "--hx", y: "--hy", w: "--hw", h: "--hh" }},
-          cloud: {{ selector: ".cloud", x: "--cloudX", y: "--cloudY", w: "--cloudW", h: "--cloudH", root: true }},
-          countdown: {{ selector: ".countdown", x: "--cx", y: "--cy", w: "--cw", h: "--ch" }},
-          clock: {{ selector: ".live-clock", x: "--lx", y: "--ly", w: "--lw", h: "--lh" }},
+          topic: {{ selector: ".topic", x: "--tx", y: "--ty", w: "--tw", h: "--th", scale: "--topicSize", baseH: 24, minS: .55, maxS: 1.8 }},
+          highlight: {{ selector: ".highlight", x: "--hx", y: "--hy", w: "--hw", h: "--hh", scale: "--highlightSize", baseH: 18, minS: .55, maxS: 1.9 }},
+          cloud: {{ selector: ".cloud", x: "--cloudX", y: "--cloudY", w: "--cloudW", h: "--cloudH", root: true, cloudScale: true, baseH: 58 }},
+          countdown: {{ selector: ".countdown", x: "--cx", y: "--cy", w: "--cw", h: "--ch", scale: "--countdownSize", baseH: 12, minS: .65, maxS: 1.6 }},
+          clock: {{ selector: ".live-clock", x: "--lx", y: "--ly", w: "--lw", h: "--lh", scale: "--clockSize", baseH: 9, minS: .65, maxS: 1.6 }},
           video: {{ selector: ".stage-video", x: "--vx", y: "--vy", w: "--vw", h: "--vh", extra: ".video-controls" }},
           website: {{ selector: ".stage-web, .stage-web-card", x: "--wx", y: "--wy", w: "--ww", h: "--wh" }},
           pdf: {{ selector: ".stage-pdf", x: "--px", y: "--py", w: "--pw", h: "--ph" }},
@@ -2738,6 +2745,18 @@ def render_overlay_html(state: dict[str, Any]) -> str:
             setter.style.setProperty(config.y, y.toFixed(1) + "%");
             setter.style.setProperty(config.w, w.toFixed(1) + "%");
             setter.style.setProperty(config.h, h.toFixed(1) + "%");
+          }}
+          if (config.scale) {{
+            const scale = Math.max(config.minS, Math.min(config.maxS, h / config.baseH));
+            document.documentElement.style.setProperty(config.scale, scale.toFixed(2));
+          }}
+          if (config.cloudScale) {{
+            const scale = Math.max(.45, Math.min(1.35, h / config.baseH));
+            document.querySelectorAll(".kw").forEach((kw) => {{
+              if (!kw.dataset.baseScale) kw.dataset.baseScale = getComputedStyle(kw).getPropertyValue("--s").trim() || "1";
+              const base = parseFloat(kw.dataset.baseScale) || 1;
+              kw.style.setProperty("--s", (base * scale).toFixed(2));
+            }});
           }}
           nodes.forEach((node) => {{
             node.style.setProperty(config.x, x.toFixed(1) + "%");

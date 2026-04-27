@@ -19,6 +19,8 @@ Dann im Browser oeffnen:
 - Debug/Test/Transparent: `...?overlay=1&debug=1&room=deine-id`, `...?overlay=1&test=1` oder `...?overlay=1&bg=transparent&room=deine-id`
 - Health-Test ohne Parameter: `http://localhost:8501/app/static/ttls_health.html`
 
+Wichtig: TikTok Live Studio kann keine Streamlit-Cloud-Login-Session halten. Cloud-Browserquellen funktionieren deshalb nur, wenn die Streamlit-App wirklich public/ohne Auth erreichbar ist. Wenn TTLS nur einen Streamlit-Frame oder Spinner zeigt, wird der Link von Streamlit Auth blockiert. Dann entweder die App in Streamlit Cloud public schalten oder lokal `http://localhost:8501/app/static/browser_overlay.html?...` als Browserquelle nutzen.
+
 ## Nutzung mit TikTok Live Studio
 
 1. App starten und TikTok-Username oder Live-URL eingeben.
@@ -46,6 +48,7 @@ Wenn die Buehne durch Bild-/Overlay-Regler zu dunkel wird, oben im Regiepult `Au
 2. Main file path: `app.py`.
 3. Nach dem Deploy die App im Browser oeffnen. Browser-Speicherung funktioniert getrennt pro Browser/Geraet ueber localStorage.
 4. Static Serving ist in `.streamlit/config.toml` aktiviert, damit TikTok Live Studio die einfache Browserquellen-Datei unter `/app/static/browser_overlay.html` laden kann.
+5. In den Streamlit-Cloud-App-Einstellungen muss die App fuer Browserquellen public/ohne Login erreichbar sein. Ein `HTTP 303` auf `share.streamlit.io/-/auth/app` bedeutet: TTLS wird von Streamlit Auth blockiert.
 
 Optional fuer den KI-Check in den Streamlit-Secrets hinterlegen:
 

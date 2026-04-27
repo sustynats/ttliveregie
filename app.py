@@ -3120,6 +3120,10 @@ def render_safety_panel() -> None:
 def render_persistence_panel() -> None:
     section("Persistenz / Backup")
     st.caption("Settings, Szenen und Bildbibliothek werden im Browser localStorage gesichert. Zusaetzlich wird lokal eine JSON-Datei als Fallback geschrieben.")
+    render_section_note(
+        "Wichtig fuer TikTok Live Studio: Streamlit-Cloud-Links funktionieren nur, wenn die App oeffentlich ohne Login erreichbar ist. "
+        "Wenn TTLS nur einen Streamlit-Frame oder Spinner zeigt, wird die Cloud-App von Streamlit Auth blockiert. Dann App public schalten oder die lokale TTLS-URL nutzen."
+    )
     st.session_state.overlay_room_id = safe_profile_id(
         st.text_input("Geheime Host-Overlay-ID", value=st.session_state.overlay_room_id, help="Diese ID verbindet Regiepult und Browserquelle. Sie ist nicht an den TikTok-Usernamen gebunden.")
     )
@@ -3130,11 +3134,11 @@ def render_persistence_panel() -> None:
     transparent_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, bg="transparent")
     test_url = "https://ttliveregie.streamlit.app/app/static/browser_overlay.html?overlay=1&test=1"
     health_url = "https://ttliveregie.streamlit.app/app/static/ttls_health.html"
-    render_copyable_url("TT Live Studio Browserquelle", static_cloud_url, "ttls_overlay")
-    render_copyable_url("TTLS Transparent", transparent_url, "ttls_transparent_overlay")
-    render_copyable_url("Lokale TTLS Browserquelle", static_local_url, "ttls_local_overlay")
-    render_copyable_url("Debug Browserquelle", debug_url, "debug_overlay")
-    render_copyable_url("Test Browserquelle", test_url, "test_overlay")
+    render_copyable_url("Lokale TTLS Browserquelle (empfohlen bei privater Cloud-App)", static_local_url, "ttls_local_overlay")
+    render_copyable_url("Cloud TTLS Browserquelle (nur wenn Streamlit-App public ist)", static_cloud_url, "ttls_overlay")
+    render_copyable_url("Cloud TTLS Transparent (nur public)", transparent_url, "ttls_transparent_overlay")
+    render_copyable_url("Cloud Debug Browserquelle (nur public)", debug_url, "debug_overlay")
+    render_copyable_url("Cloud Test Browserquelle (nur public)", test_url, "test_overlay")
     render_copyable_url("Health-Test ohne Parameter", health_url, "health_overlay")
     render_copyable_url("Streamlit-Fallback", cloud_url, "cloud_overlay")
     if st.button("Neue geheime Overlay-ID erzeugen", key="room_rotate", use_container_width=True):

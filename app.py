@@ -6,6 +6,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import queue
 import re
 import threading
@@ -1118,17 +1119,75 @@ def static_state_file(room_id: str | None = None) -> Path:
     return STATIC_DIR / f"overlay_state_{safe_profile_id(room_id or st.session_state.get('overlay_room_id', 'default'))}.json"
 
 
+def _is_streamlit_cloud_host(base_url: str) -> bool:
+    """Heuristik: Streamlit-Cloud-Host an der URL erkennen."""
+    try:
+        host = (urlparse(base_url).hostname or "").lower()
+    except Exception:
+        host = ""
+    return host.endswith(".streamlit.app") or host.endswith(".streamlitapp.com")
+
+
+def _static_path_for(base_url: str, filename: str) -> str:
+    """Streamlit-Cloud serviert Static unter `/~/+/static/...` ohne Auth.
+
+    `/app/static/...` würde von Cloud's Reverse-Proxy als App-Route
+    eingestuft und triggert den Auth-Redirect (HTTP 303 → /-/login),
+    selbst bei "public and searchable"-Apps. Lokal (Streamlit-Server
+    selbst) ist es genau umgekehrt — `/app/static/` funktioniert,
+    `/~/+/static/` nicht.
+    """
+    if _is_streamlit_cloud_host(base_url):
+        return f"/~/+/static/{filename}"
+    return f"/app/static/{filename}"
+
+
+def _runtime_static_prefix() -> str:
+    """Pfad-Präfix für Static-Assets aus dem laufenden Streamlit heraus.
+
+    Wird beim iframe-Embed in der Bühne (render_stage) und beim
+    Overlay-Redirect verwendet. Cloud-Detection geht über mehrere
+    Quellen, weil keine davon zuverlässig in allen Streamlit-Versionen
+    verfügbar ist.
+    """
+    # 1) st.context.headers (Streamlit ≥ 1.32)
+    try:
+        host_header = ""
+        ctx = getattr(st, "context", None)
+        if ctx is not None:
+            headers = getattr(ctx, "headers", None)
+            if headers is not None:
+                # headers ist ein Mapping-ähnliches Objekt
+                host_header = (headers.get("Host") or headers.get("host") or "").lower()
+        if host_header.endswith(".streamlit.app") or host_header.endswith(".streamlitapp.com"):
+            return "/~/+/static"
+    except Exception:
+        pass
+    # 2) Environment-Variablen (Streamlit Cloud setzt z. B. HOSTNAME=streamlit-…)
+    hostname = os.environ.get("HOSTNAME", "")
+    if hostname.startswith("streamlit-"):
+        return "/~/+/static"
+    if os.environ.get("STREAMLIT_RUNTIME_ENV", "").lower() == "cloud":
+        return "/~/+/static"
+    if os.environ.get("STREAMLIT_SHARING_MODE", "").lower() in {"cloud", "share"}:
+        return "/~/+/static"
+    # 3) Default: lokaler Streamlit-Server
+    return "/app/static"
+
+
 def static_overlay_url(base_url: str, room_id: str, **params: str) -> str:
     """URL der reinen Bühnen-HTML ohne Streamlit-Chrome.
 
     Zeigt direkt auf static/stage.html — TikTok Live Studio sieht damit kein
-    Streamlit, keine Login-Wall, kein Spinner. Backwards-compat für ?overlay=1
-    bleibt im Streamlit-Routing erhalten (leitet ebenfalls auf stage.html weiter).
+    Streamlit, keine Login-Wall, kein Spinner. Static-Assets sind unter
+    `/~/+/static/` von Streamlit Cloud public verfügbar (ohne Auth-Redirect),
+    auch wenn die App ansonsten Auth-protected ist.
     """
     query: dict[str, str] = {"room": safe_profile_id(room_id)}
     query.update({key: value for key, value in params.items() if value})
     encoded = "&".join(f"{key}={value}" for key, value in query.items())
-    return f"{base_url.rstrip('/')}/app/static/{STATIC_STAGE_FILE.name}?{encoded}"
+    path = _static_path_for(base_url, STATIC_STAGE_FILE.name)
+    return f"{base_url.rstrip('/')}{path}?{encoded}"
 
 
 def apply_persistent_payload(payload: dict[str, Any]) -> None:
@@ -2590,7 +2649,10 @@ def render_stage(state: dict[str, Any], height: int = 860) -> None:
     # — das ist die Ursache des Reload-Loops. Die src darf sich nur ändern,
     # wenn der User aktiv `room` oder `edit` umschaltet. Das Polling im
     # Inneren von stage.html bringt die State-Updates rein.
-    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
+    # Pfad: lokal `/app/static/`, Streamlit Cloud `/~/+/static/`
+    # (Cloud würde sonst beim Aufruf der App-Route einen Auth-Redirect
+    # auslösen).
+    src = f"{_runtime_static_prefix()}/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
     iframe_html = (
         '<!doctype html><html><head><meta charset="utf-8"><style>'
         'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'
@@ -2622,7 +2684,11 @@ def render_static_overlay_redirect() -> None:
         "bg": st.query_params.get("bg", ""),
         "transparent": st.query_params.get("transparent", ""),
     }
-    target = static_overlay_url("", room, **params)
+    # Relativer Redirect-Target: nutzt den Runtime-Prefix (Cloud vs lokal)
+    query: dict[str, str] = {"room": room}
+    query.update({k: v for k, v in params.items() if v})
+    encoded = "&".join(f"{k}={v}" for k, v in query.items())
+    target = f"{_runtime_static_prefix()}/{STATIC_STAGE_FILE.name}?{encoded}"
     absolute_target = static_overlay_url("https://ttliveregie.streamlit.app", room, **params)
     st.markdown(
         f"""
@@ -3362,30 +3428,61 @@ def render_safety_panel() -> None:
         compute_keywords(force=True)
 
 
+def primary_browser_source_url() -> str:
+    """Liefert die EINE Browserquellen-URL, die der User in TikTok Live Studio einfügt.
+
+    Wenn das Regiepult auf Streamlit Cloud läuft (erkennbar an `.streamlit.app`-Host),
+    bauen wir die URL absolut mit dem Cloud-Pfad-Schema (`/~/+/static/`). Lokal
+    nehmen wir `http://localhost:8501/app/static/`. So passt EINE Box für beide
+    Welten — keine "Cloud vs lokal"-Verwirrung mehr.
+    """
+    room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
+    base = ""
+    try:
+        ctx = getattr(st, "context", None)
+        headers = getattr(ctx, "headers", None) if ctx is not None else None
+        host = (headers.get("Host") or headers.get("host") or "").lower() if headers is not None else ""
+        if host:
+            scheme = "https" if (host.endswith(".streamlit.app") or host.endswith(".streamlitapp.com")) else "http"
+            base = f"{scheme}://{host}"
+    except Exception:
+        base = ""
+    if not base:
+        # Lokal: vernünftiger Default
+        base = "http://localhost:8501"
+    return static_overlay_url(base, room)
+
+
+def render_primary_browser_source(prefix: str = "stage_topbar") -> None:
+    """Prominente, kopierbare Browserquellen-URL — eine einzige.
+
+    Wird oben über der Bühne im Regiepult angezeigt. Der User soll genau
+    eine URL kennen, die er in TikTok Live Studio einfügt.
+    """
+    url = primary_browser_source_url()
+    st.markdown("##### 🎬 TikTok Live Studio Browserquelle")
+    st.code(url, language=None)
+    st.caption(
+        "Diese URL als Browserquelle in TikTok Live Studio einfügen. "
+        "Static-Pfade unter `/~/+/static/` sind auf Streamlit Cloud immer "
+        "ohne Login erreichbar — auch wenn die App selbst Auth hat."
+    )
+
+
 def render_persistence_panel() -> None:
     section("Persistenz / Backup")
-    st.caption("Settings, Szenen und Bildbibliothek werden im Browser localStorage gesichert. Zusaetzlich wird lokal eine JSON-Datei als Fallback geschrieben.")
-    render_section_note(
-        "Wichtig fuer TikTok Live Studio: Streamlit-Cloud-Links funktionieren nur, wenn die App oeffentlich ohne Login erreichbar ist. "
-        "Wenn TTLS nur einen Streamlit-Frame oder Spinner zeigt, wird die Cloud-App von Streamlit Auth blockiert. Dann App public schalten oder die lokale TTLS-URL nutzen."
-    )
+    st.caption("Settings, Szenen und Bildbibliothek werden im Browser localStorage gesichert. Zusätzlich wird lokal eine JSON-Datei als Fallback geschrieben.")
     st.session_state.overlay_room_id = safe_profile_id(
-        st.text_input("Geheime Host-Overlay-ID", value=st.session_state.overlay_room_id, help="Diese ID verbindet Regiepult und Browserquelle. Sie ist nicht an den TikTok-Usernamen gebunden.")
+        st.text_input(
+            "Geheime Host-Overlay-ID",
+            value=st.session_state.overlay_room_id,
+            help="Diese ID verbindet Regiepult und Browserquelle. Sie ist nicht an den TikTok-Usernamen gebunden.",
+        )
     )
-    static_cloud_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id)
-    static_local_url = static_overlay_url("http://localhost:8501", st.session_state.overlay_room_id)
-    cloud_url = f"https://ttliveregie.streamlit.app/?overlay=1&room={st.session_state.overlay_room_id}"
-    debug_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, debug="1")
-    transparent_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, bg="transparent")
-    test_url = f"https://ttliveregie.streamlit.app/app/static/{STATIC_STAGE_FILE.name}?test=1"
-    health_url = "https://ttliveregie.streamlit.app/app/static/ttls_health.html"
-    render_copyable_url("Lokale TTLS Browserquelle (empfohlen bei privater Cloud-App)", static_local_url, "ttls_local_overlay")
-    render_copyable_url("Cloud TTLS Browserquelle (nur wenn Streamlit-App public ist)", static_cloud_url, "ttls_overlay")
-    render_copyable_url("Cloud TTLS Transparent (nur public)", transparent_url, "ttls_transparent_overlay")
-    render_copyable_url("Cloud Debug Browserquelle (nur public)", debug_url, "debug_overlay")
-    render_copyable_url("Cloud Test Browserquelle (nur public)", test_url, "test_overlay")
-    render_copyable_url("Health-Test ohne Parameter", health_url, "health_overlay")
-    render_copyable_url("Streamlit-Fallback", cloud_url, "cloud_overlay")
+
+    # EINE prominente Browserquellen-URL — exakt das, was der User in TikTok Live Studio einfügt.
+    render_primary_browser_source(prefix="stage_backup")
+
     if st.button("Neue geheime Overlay-ID erzeugen", key="room_rotate", use_container_width=True):
         st.session_state.overlay_room_id = safe_profile_id(str(uuid.uuid4()))[:18]
         save_persisted_state("rotate_room")
@@ -3408,9 +3505,33 @@ def render_persistence_panel() -> None:
         clear_persisted_state()
         st.warning("Lokaler Speicher wurde geleert. Bitte App neu laden.")
 
+    with st.expander("Erweiterte URLs (Debug, Test, Lokal, Transparent)", expanded=False):
+        st.caption(
+            "Static-Pfade unter `/~/+/static/` werden von Streamlit Cloud immer ohne Auth ausgeliefert "
+            "— ein Auth-Redirect (alter Bug) sollte nicht mehr passieren. Sollte deine Bühne trotzdem "
+            "weißen Bildschirm zeigen, hilft `?debug=1` (Debug-Banner einblenden)."
+        )
+        static_cloud_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id)
+        static_local_url = static_overlay_url("http://localhost:8501", st.session_state.overlay_room_id)
+        debug_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, debug="1")
+        transparent_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, bg="transparent")
+        test_url = f"https://ttliveregie.streamlit.app/~/+/static/{STATIC_STAGE_FILE.name}?test=1"
+        health_url = "https://ttliveregie.streamlit.app/~/+/static/ttls_health.html"
+        render_copyable_url("Cloud-Bühne (absolut)", static_cloud_url, "ttls_cloud_abs")
+        render_copyable_url("Lokale Bühne (für `streamlit run` zuhause)", static_local_url, "ttls_local")
+        render_copyable_url("Cloud Transparent (kein BG)", transparent_url, "ttls_transparent")
+        render_copyable_url("Cloud Debug (Debug-Banner)", debug_url, "ttls_debug")
+        render_copyable_url("Cloud Test (TT LIVE STUDIO TEST OK)", test_url, "ttls_test")
+        render_copyable_url("Health-Test (statisch)", health_url, "ttls_health")
+
 
 def render_control_panel() -> None:
     render_director_header()
+    # EINE prominente TTLS-Browserquellen-URL direkt oben — das ist die wichtigste
+    # URL der App. Genau diese fügt der User in TikTok Live Studio als Browserquelle
+    # ein. Alle anderen Varianten (Debug, Test, Lokal, Transparent) bleiben im
+    # Backup-Tab unter "Erweiterte URLs" versteckt.
+    render_primary_browser_source(prefix="stage_topbar")
     render_quick_actions()
     if st.button("Szene jetzt speichern", key="quick_save_scene_top", use_container_width=True):
         scene_name = st.session_state.last_active_scene or f"Szene {len(st.session_state.scenes) + 1}"

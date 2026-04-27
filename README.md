@@ -15,11 +15,13 @@ Dann im Browser oeffnen:
 
 - Regiepult: `http://localhost:8501`
 - Overlay-only: `http://localhost:8501?overlay=1`
-- TT-Live-Studio-Browserquelle: im Regiepult unter `Persistenz / Backup` den Link `TT Live Studio Browserquelle` nutzen, z. B. `http://localhost:8501/app/static/browser_overlay.html?overlay=1&room=deine-id`
-- Debug/Test/Transparent: `...?overlay=1&debug=1&room=deine-id`, `...?overlay=1&test=1` oder `...?overlay=1&bg=transparent&room=deine-id`
-- Health-Test ohne Parameter: `http://localhost:8501/app/static/ttls_health.html`
+- TT-Live-Studio-Browserquelle: im Regiepult oben (direkt unter dem Header) erscheint **eine** prominente URL als TikTok-Live-Studio-Browserquelle. Genau diese URL in TTLS einfuegen.
+  - Lokal: `http://localhost:8501/app/static/stage.html?room=deine-id`
+  - Streamlit Cloud: `https://ttliveregie.streamlit.app/~/+/static/stage.html?room=deine-id`
+- Erweiterte Varianten (Debug, Test, Transparent) liegen im Regiepult unter `Backup -> Erweiterte URLs`.
+- Health-Test ohne Parameter: `https://ttliveregie.streamlit.app/~/+/static/ttls_health.html` (lokal: `http://localhost:8501/app/static/ttls_health.html`).
 
-Wichtig: TikTok Live Studio kann keine Streamlit-Cloud-Login-Session halten. Cloud-Browserquellen funktionieren deshalb nur, wenn die Streamlit-App wirklich public/ohne Auth erreichbar ist. Wenn TTLS nur einen Streamlit-Frame oder Spinner zeigt, wird der Link von Streamlit Auth blockiert. Dann entweder die App in Streamlit Cloud public schalten oder lokal `http://localhost:8501/app/static/browser_overlay.html?...` als Browserquelle nutzen.
+Wichtig: Streamlit Cloud serviert statische Dateien unter `/~/+/static/` immer ohne Auth-Wall, auch wenn die App ansonsten Auth-protected ist. Der alte `/app/static/`-Pfad triggerte einen Redirect auf `/-/login` und ist deshalb auf Cloud nicht mehr im Einsatz. Lokal (`streamlit run app.py`) bleibt `/app/static/` der korrekte Pfad. Die App erkennt den Host automatisch und baut die richtige URL fuer dich.
 
 ## Nutzung mit TikTok Live Studio
 
@@ -47,8 +49,8 @@ Wenn die Buehne durch Bild-/Overlay-Regler zu dunkel wird, oben im Regiepult `Au
 1. Repository mit `app.py` und `requirements.txt` deployen.
 2. Main file path: `app.py`.
 3. Nach dem Deploy die App im Browser oeffnen. Browser-Speicherung funktioniert getrennt pro Browser/Geraet ueber localStorage.
-4. Static Serving ist in `.streamlit/config.toml` aktiviert, damit TikTok Live Studio die einfache Browserquellen-Datei unter `/app/static/browser_overlay.html` laden kann.
-5. In den Streamlit-Cloud-App-Einstellungen muss die App fuer Browserquellen public/ohne Login erreichbar sein. Ein `HTTP 303` auf `share.streamlit.io/-/auth/app` bedeutet: TTLS wird von Streamlit Auth blockiert.
+4. Static Serving ist in `.streamlit/config.toml` aktiviert. Auf Streamlit Cloud liegt die Buehne unter `https://<dein-app>.streamlit.app/~/+/static/stage.html?room=deine-id` (nicht unter `/app/static/...` -- das ist Cloud-seitig hinter Auth).
+5. Static-Pfade unter `/~/+/static/` sind auf Streamlit Cloud immer public erreichbar, unabhaengig davon, ob die App selbst Auth verlangt. Damit funktioniert die TTLS-Browserquelle auch bei privaten Apps.
 
 Optional fuer den KI-Check in den Streamlit-Secrets hinterlegen:
 

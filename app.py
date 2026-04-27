@@ -64,6 +64,7 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
+DEFAULTS_VERSION = 3
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -238,6 +239,81 @@ THEMES = {
         "font": "Bebas Neue",
         "cloud_x": 50,
         "cloud_y": 50,
+    },
+    "Cyber Newsroom": {
+        "key": "cyber",
+        "bg": "#02040a",
+        "panel": "rgba(5, 12, 22, .72)",
+        "text": "#f8fbff",
+        "muted": "#8ee8ff",
+        "accent": "#00f5ff",
+        "accent2": "#ff2bd6",
+        "accent3": "#f8ff4d",
+        "glow": "rgba(0,245,255,.34)",
+        "cloud_style": "Network Cloud",
+        "font": "Montserrat",
+        "cloud_x": 50,
+        "cloud_y": 52,
+    },
+    "Aurora Glass": {
+        "key": "aurora",
+        "bg": "#07110f",
+        "panel": "rgba(230,255,245,.16)",
+        "text": "#ecfff6",
+        "muted": "#b6e9d6",
+        "accent": "#70ffca",
+        "accent2": "#9a8cff",
+        "accent3": "#fff38a",
+        "glow": "rgba(112,255,202,.28)",
+        "cloud_style": "Orbital Cloud",
+        "font": "Inter",
+        "cloud_x": 50,
+        "cloud_y": 52,
+    },
+    "Protest Poster": {
+        "key": "poster",
+        "bg": "#f7efe2",
+        "panel": "rgba(20, 18, 15, .10)",
+        "text": "#111111",
+        "muted": "#4b4134",
+        "accent": "#ff2a2a",
+        "accent2": "#111111",
+        "accent3": "#ffd400",
+        "glow": "rgba(255,42,42,.18)",
+        "cloud_style": "Magazine Cloud",
+        "font": "Bebas Neue",
+        "cloud_x": 50,
+        "cloud_y": 52,
+    },
+    "Data Bloom": {
+        "key": "bloom",
+        "bg": "#071014",
+        "panel": "rgba(12, 28, 34, .74)",
+        "text": "#f0fff9",
+        "muted": "#a7c8be",
+        "accent": "#7cff6b",
+        "accent2": "#ffb86b",
+        "accent3": "#6bd6ff",
+        "glow": "rgba(124,255,107,.22)",
+        "cloud_style": "Bubble Cloud",
+        "font": "Poppins",
+        "cloud_x": 50,
+        "cloud_y": 52,
+    },
+    "Velvet Studio": {
+        "key": "velvet",
+        "bg": "#160713",
+        "panel": "rgba(38, 10, 32, .72)",
+        "text": "#fff1fa",
+        "muted": "#dfb8d1",
+        "accent": "#ff5da8",
+        "accent2": "#ffcf70",
+        "accent3": "#8bd3ff",
+        "glow": "rgba(255,93,168,.30)",
+        "cloud_style": "Minimal Cloud",
+        "font": "Playfair Display",
+        "cloud_x": 50,
+        "cloud_y": 52,
     },
 }
 
@@ -654,13 +730,15 @@ def font_stack(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def init_state() -> None:
+    existing_defaults_version = int(st.session_state.get("defaults_version", 0) or 0)
     defaults = {
         "target_input": "",
+        "defaults_version": DEFAULTS_VERSION,
         "topic": "Worueber sprechen wir gerade?",
         "topic_draft": "Worueber sprechen wir gerade?",
         "highlight_word": "",
         "highlight_draft": "",
-        "auto_highlight": True,
+        "auto_highlight": False,
         "manual_cloud_words_text": "",
         "manual_word_size": 130,
         "manual_words_emphasis": True,
@@ -671,13 +749,13 @@ def init_state() -> None:
         "countdown_running": False,
         "countdown_started_at": None,
         "show_live_since": True,
-        "layout": "Editorial Dark",
-        "cloud_style": "Magazine Cloud",
+        "layout": "Neon Pop",
+        "cloud_style": "Color Burst",
         "cloud_style_locked": False,
         "aspect": DEFAULT_ASPECT,
         "show_topic": True,
         "show_cloud": True,
-        "show_highlight": True,
+        "show_highlight": False,
         "show_countdown": False,
         "show_clock": True,
         "show_background": True,
@@ -691,24 +769,25 @@ def init_state() -> None:
         "bg_dim": 25,
         "bg_blur": 0,
         "bg_brightness": 115,
-        "keyword_size": 100,
-        "keyword_density": 80,
+        "keyword_size": 55,
+        "keyword_density": 45,
         "animation_intensity": 55,
-        "motion_effects": ["Nebel"],
-        "motion_opacity": 22,
+        "show_motion_layers": True,
+        "motion_effects": ["Nebel", "Lichtstaub"],
+        "motion_opacity": 42,
         "motion_speed": 55,
         "show_heatmap": False,
         "heatmap_opacity": 28,
         "cloud_pos_x": 50,
         "cloud_pos_y": 50,
-        "cloud_width": 68,
-        "cloud_height": 66,
+        "cloud_width": 58,
+        "cloud_height": 58,
         "cloud_tilt": 0,
         "topic_text_size": 100,
         "highlight_text_size": 100,
         "countdown_text_size": 100,
         "clock_text_size": 100,
-        "topic_font_family": "Playfair Display",
+        "topic_font_family": "Poppins",
         "topic_font_weight": 850,
         "topic_letter_spacing": 0,
         "topic_text_transform": "normal",
@@ -800,6 +879,8 @@ def init_state() -> None:
         st.session_state.overlay_room_id = safe_profile_id(st.session_state.browser_id or str(uuid.uuid4()))[:18]
     if not st.session_state.scenes:
         st.session_state.scenes = build_default_scenes()
+    if existing_defaults_version < DEFAULTS_VERSION:
+        apply_visual_defaults_v3()
 
 
 def build_default_scenes() -> dict[str, dict[str, Any]]:
@@ -820,7 +901,7 @@ def build_default_scenes() -> dict[str, dict[str, Any]]:
     }
     return {
         "Intro": {**base, "layout": "Editorial Dark", "cloud_style": "Magazine Cloud", "topic": "Willkommen im Live", "show_countdown": True, "animation_intensity": 35},
-        "Diskussion": {**base, "layout": "Bauhaus Clean", "cloud_style": "Classic Word Cloud", "topic": "Diskussion", "cloud_width": 62, "keyword_density": 70},
+        "Diskussion": {**base, "layout": "Neon Pop", "cloud_style": "Color Burst", "topic": "Diskussion", "cloud_width": 58, "keyword_density": 45, "show_highlight": False},
         "Q&A": {**base, "layout": "Neon Pop", "cloud_style": "Color Burst", "topic": "Q&A", "show_countdown": True, "animation_intensity": 68},
         "Deep Dive": {**base, "layout": "System Map", "cloud_style": "Network Cloud", "topic": "Deep Dive", "focus_mode": False, "cloud_width": 74},
         "Fazit": {**base, "layout": "Soft Power", "cloud_style": "Minimal Cloud", "topic": "Fazit", "focus_mode": True, "keyword_density": 45},
@@ -829,6 +910,7 @@ def build_default_scenes() -> dict[str, dict[str, Any]]:
 
 def snapshot_scene() -> dict[str, Any]:
     keys = [
+        "defaults_version",
         "layout", "cloud_style", "cloud_style_locked", "active_image_id", "show_topic", "show_cloud", "show_highlight", "show_countdown",
         "show_clock", "show_background", "show_animations", "show_safe_zones", "show_overlay_frame",
         "show_live_since",
@@ -837,6 +919,7 @@ def snapshot_scene() -> dict[str, Any]:
         "countdown_remaining", "countdown_running", "bg_dim", "bg_blur", "bg_brightness", "bg_opacity", "bg_zoom",
         "bg_pos_x", "bg_pos_y", "bg_fit", "keyword_size", "keyword_density", "animation_intensity",
         "motion_effects", "motion_opacity", "motion_speed", "show_heatmap", "heatmap_opacity",
+        "show_motion_layers",
         "cloud_pos_x", "cloud_pos_y", "cloud_width", "cloud_height", "cloud_tilt", "topic_text_size",
         "highlight_text_size", "countdown_text_size", "clock_text_size", "topic_font_family", "topic_font_weight",
         "topic_letter_spacing", "topic_text_transform", "keyword_font_family", "keyword_font_weight",
@@ -850,6 +933,21 @@ def snapshot_scene() -> dict[str, Any]:
         "ai_max_chars", "image_prompt", "image_model", "image_prompt_use_chat", "image_generation_error",
     ]
     return {key: st.session_state.get(key) for key in keys}
+
+
+def apply_visual_defaults_v3() -> None:
+    st.session_state.layout = "Neon Pop"
+    st.session_state.cloud_style = "Color Burst"
+    st.session_state.show_highlight = False
+    st.session_state.auto_highlight = False
+    st.session_state.keyword_size = min(int(st.session_state.get("keyword_size", 55) or 55), 55)
+    st.session_state.keyword_density = min(int(st.session_state.get("keyword_density", 45) or 45), 45)
+    st.session_state.cloud_pos_x = 50
+    st.session_state.cloud_pos_y = 50
+    st.session_state.cloud_width = min(int(st.session_state.get("cloud_width", 58) or 58), 58)
+    st.session_state.cloud_height = min(int(st.session_state.get("cloud_height", 58) or 58), 58)
+    st.session_state.topic_font_family = "Poppins"
+    st.session_state.defaults_version = DEFAULTS_VERSION
 
 
 def apply_scene(scene: dict[str, Any]) -> None:
@@ -915,6 +1013,7 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         "custom_whitelist_text",
         "last_active_scene",
         "overlay_room_id",
+        "defaults_version",
     }
     for key, value in payload.items():
         if key in allowed:
@@ -925,6 +1024,8 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
     if st.session_state.get("ai_model") not in AI_MODELS:
         st.session_state.ai_model = "gemini-2.5-flash"
+    if int(payload.get("defaults_version", 0) or 0) < DEFAULTS_VERSION:
+        apply_visual_defaults_v3()
     if is_ai_error_text(st.session_state.get("ai_response", "")):
         st.session_state.ai_error = st.session_state.ai_response
         st.session_state.ai_response = ""
@@ -1032,6 +1133,30 @@ def readable_url(value: str) -> str:
     if not re.match(r"^https?://", value, re.IGNORECASE):
         value = f"https://{value}"
     return value
+
+
+def youtube_embed_url(value: str) -> str:
+    url = readable_url(value)
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    video_id = ""
+    if "youtu.be" in host:
+        video_id = parsed.path.strip("/").split("/")[0]
+    elif "youtube.com" in host:
+        if parsed.path.startswith("/watch"):
+            query = dict(part.split("=", 1) for part in parsed.query.split("&") if "=" in part)
+            video_id = query.get("v", "")
+        elif "/shorts/" in parsed.path or "/embed/" in parsed.path:
+            parts = [part for part in parsed.path.split("/") if part]
+            video_id = parts[-1] if parts else ""
+    if not video_id:
+        return ""
+    return f"https://www.youtube.com/embed/{html.escape(video_id)}?controls=1&rel=0&playsinline=1&enablejsapi=1"
+
+
+def is_youtube_url(value: str) -> bool:
+    host = url_host(value)
+    return "youtube.com" in host or "youtu.be" in host
 
 
 def url_host(value: str) -> str:
@@ -1643,7 +1768,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     if safe_zones and not hidden:
         safe_html = '<div class="safe guest">Gäste-Zone</div><div class="safe chat">TikTok Chat-Zone</div>'
     motion_html = ""
-    if not hidden and anim_enabled and state.get("motion_effects"):
+    if not hidden and anim_enabled and state.get("show_motion_layers", True) and state.get("motion_effects"):
         effect_nodes = "".join(f'<i class="fx fx-{html.escape(effect.lower())}"></i>' for effect in state.get("motion_effects", []))
         motion_html = f'<div class="motion-layer">{effect_nodes}</div>'
     heatmap_html = ""
@@ -1652,20 +1777,29 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         heatmap_html = f'<div class="heatmap {heat_cls}"><span>Stimmung: {html.escape(str(heat.get("label", "neutral")))}</span></div>'
     video_html = ""
     if not hidden and show_video:
-        video_html = (
-            f'<video class="stage-video" src="{html.escape(state.get("video_url", ""))}" '
-            f'id="stageVideo" '
-            f'controls playsinline {"muted" if state.get("video_muted") else ""} '
-            f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};object-fit:{html.escape(state.get("video_fit","contain"))};"></video>'
-            f'<div class="video-controls"><button onclick="stageVideo.currentTime=Math.max(0,stageVideo.currentTime-10)">-10</button><button onclick="stageVideo.paused?stageVideo.play():stageVideo.pause()">Play/Pause</button><button onclick="stageVideo.currentTime=stageVideo.currentTime+10">+10</button></div>'
-        )
+        video_url = readable_url(state.get("video_url", ""))
+        youtube_url = youtube_embed_url(video_url)
+        if youtube_url:
+            video_html = (
+                f'<iframe class="stage-video video-embed" src="{youtube_url}" '
+                f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};" '
+                f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>'
+            )
+        else:
+            video_html = (
+                f'<video class="stage-video" src="{html.escape(video_url)}" '
+                f'id="stageVideo" '
+                f'controls playsinline {"muted" if state.get("video_muted") else ""} '
+                f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};object-fit:{html.escape(state.get("video_fit","contain"))};"></video>'
+                f'<div class="video-controls"><button onclick="stageVideo.currentTime=Math.max(0,stageVideo.currentTime-10)">-10</button><button onclick="stageVideo.paused?stageVideo.play():stageVideo.pause()">Play/Pause</button><button onclick="stageVideo.currentTime=stageVideo.currentTime+10">+10</button></div>'
+            )
     website_html = ""
     if not hidden and state.get("show_website") and state.get("website_url"):
         website_url = readable_url(state.get("website_url", ""))
         website_mode = state.get("website_mode", "Auto")
         has_preview = bool(state.get("website_preview_text"))
-        use_reader = website_mode == "Website-Vorschau" or (website_mode == "Auto" and is_known_iframe_blocked(website_url) and has_preview)
-        use_link_card = website_mode == "Link-Karte" or (website_mode == "Auto" and is_known_iframe_blocked(website_url) and not has_preview)
+        use_reader = website_mode == "Website-Vorschau" or (website_mode == "Auto" and has_preview)
+        use_link_card = website_mode == "Link-Karte" or website_mode == "Auto"
         host = html.escape(url_host(website_url) or website_url)
         if use_reader:
             website_html = (
@@ -1736,6 +1870,11 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .layout-bauhaus::before {{ background:linear-gradient(90deg, transparent 0 62%, color-mix(in srgb, var(--accent2) 18%, transparent) 62%), radial-gradient(circle at 84% 18%, var(--accent3) 0 8%, transparent 8%), linear-gradient(135deg, transparent 0 72%, var(--accent) 72%); opacity:.55; }}
     .layout-print::before {{ background:repeating-linear-gradient(0deg, rgba(0,0,0,.025) 0 1px, transparent 1px 7px); }}
     .layout-festival::before {{ background:radial-gradient(circle at 18% 18%, var(--accent) 0 8%, transparent 8%), radial-gradient(circle at 78% 22%, var(--accent2) 0 12%, transparent 12%), radial-gradient(circle at 84% 76%, var(--accent3) 0 10%, transparent 10%); opacity:.32; }}
+    .layout-cyber::before {{ background:linear-gradient(120deg, rgba(0,245,255,.16), transparent 35%), repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 44px); }}
+    .layout-aurora::before {{ background:radial-gradient(ellipse at 20% 25%, rgba(112,255,202,.35), transparent 34%), radial-gradient(ellipse at 85% 35%, rgba(154,140,255,.32), transparent 36%); }}
+    .layout-poster::before {{ background:linear-gradient(135deg, rgba(255,42,42,.20) 0 22%, transparent 22% 70%, rgba(255,212,0,.28) 70%), repeating-linear-gradient(0deg, rgba(0,0,0,.035) 0 2px, transparent 2px 8px); }}
+    .layout-bloom::before {{ background:radial-gradient(circle at 28% 34%, rgba(124,255,107,.28), transparent 22%), radial-gradient(circle at 72% 58%, rgba(107,214,255,.24), transparent 28%); }}
+    .layout-velvet::before {{ background:radial-gradient(circle at 24% 22%, rgba(255,93,168,.32), transparent 28%), radial-gradient(circle at 80% 78%, rgba(255,207,112,.20), transparent 32%); }}
     .stage.framed {{ outline:1px solid color-mix(in srgb, var(--accent) 42%, transparent); }}
     .bg-image {{ position:absolute; inset:-5%; background-repeat:no-repeat; z-index:-4; {bg_style} }}
     .readability {{
@@ -1748,7 +1887,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .layout-clean .readability {{ background:linear-gradient(90deg, rgba(255,255,255,.68), rgba(255,255,255,.24) 65%, rgba(255,255,255,.06)); }}
     .layout-soft .readability {{ background:radial-gradient(circle at 18% 26%, rgba(176,78,111,.16), transparent 28%), linear-gradient(90deg, rgba(255,246,239,.72), rgba(255,246,239,.2) 62%, rgba(255,246,239,.05)); }}
     .grain {{ position:absolute; inset:0; z-index:-2; background-image:linear-gradient(115deg, transparent, rgba(255,255,255,.035), transparent); opacity:.55; }}
-    .motion-layer {{ position:absolute; inset:0; z-index:1; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
+    .motion-layer {{ position:absolute; inset:0; z-index:3; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
     .fx {{ position:absolute; inset:-18%; display:block; }}
     .fx-nebel {{ background:radial-gradient(circle at 18% 42%, rgba(255,255,255,.28), transparent 26%), radial-gradient(circle at 82% 62%, rgba(255,255,255,.18), transparent 32%); filter:blur(18px); animation: drift calc(20s / var(--motionSpeed)) linear infinite; }}
     .fx-lagerfeuer {{ background:radial-gradient(ellipse at 30% 86%, rgba(255,117,24,.45), transparent 20%), radial-gradient(ellipse at 48% 90%, rgba(255,205,92,.32), transparent 24%); animation:flicker calc(3s / var(--motionSpeed)) ease-in-out infinite; }}
@@ -1757,7 +1896,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .fx-regen {{ background:repeating-linear-gradient(110deg, transparent 0 16px, rgba(160,200,255,.18) 17px 19px, transparent 20px 34px); animation: rain calc(5s / var(--motionSpeed)) linear infinite; }}
     .fx-funkeln {{ background:radial-gradient(circle at 20% 20%, rgba(255,255,255,.75), transparent 1.5%), radial-gradient(circle at 70% 36%, rgba(255,255,255,.55), transparent 1.2%), radial-gradient(circle at 52% 80%, rgba(255,255,255,.45), transparent 1.4%); animation:flicker calc(4s / var(--motionSpeed)) ease-in-out infinite alternate; }}
     .fx-wellen {{ background:repeating-radial-gradient(ellipse at 50% 60%, transparent 0 8%, rgba(255,255,255,.12) 9%, transparent 10%); animation:pulse calc(10s / var(--motionSpeed)) ease-in-out infinite; }}
-    .heatmap {{ position:absolute; inset:0; z-index:1; pointer-events:none; opacity:calc(var(--heatOpacity) * var(--heatIntensity)); mix-blend-mode:screen; }}
+    .heatmap {{ position:absolute; inset:0; z-index:2; pointer-events:none; opacity:calc(var(--heatOpacity) * var(--heatIntensity)); mix-blend-mode:screen; }}
     .heatmap.positive {{ background:radial-gradient(circle at 28% 28%, rgba(57,255,146,.55), transparent 32%), radial-gradient(circle at 70% 62%, rgba(80,180,255,.22), transparent 30%); }}
     .heatmap.negative {{ background:radial-gradient(circle at 30% 30%, rgba(255,57,86,.55), transparent 34%), radial-gradient(circle at 65% 68%, rgba(255,176,58,.28), transparent 32%); }}
     .heatmap.neutral {{ background:radial-gradient(circle at 38% 38%, rgba(255,255,255,.20), transparent 34%), radial-gradient(circle at 74% 58%, rgba(120,160,255,.18), transparent 32%); }}
@@ -1785,7 +1924,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       color:var(--text); background:color-mix(in srgb, var(--panel) 80%, transparent);
       border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);
       box-shadow:0 10px 26px rgba(0,0,0,.18), 0 0 24px var(--glow);
-      white-space:nowrap; font-size:clamp(18px, 3.2vw, 34px);
+      white-space:nowrap; font-size:clamp(12px, 2.1vw, 24px);
     }}
     .animated .kw {{ animation: floaty var(--d) ease-in-out infinite; animation-delay:var(--delay); }}
     .kw.fresh {{ color:var(--accent); box-shadow:0 0 38px var(--glow), 0 12px 30px rgba(0,0,0,.24); }}
@@ -1866,7 +2005,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       .stage-wrap {{ padding:4px; }}
       .topic {{ width:74%; font-size:calc(clamp(30px, 12vw, 58px) * var(--topicSize)); }}
       .highlight {{ font-size:calc(clamp(38px, 13vw, 74px) * var(--highlightSize)); }}
-      .kw {{ font-size:clamp(16px, 6vw, 28px); }}
+      .kw {{ font-size:clamp(11px, 4.2vw, 20px); }}
     }}
     </style>
     </head>
@@ -2026,6 +2165,8 @@ def render_toggle_panel() -> None:
         ("show_live_since", "Live seit Uhrzeit anzeigen"),
         ("show_background", "Hintergrundbild anzeigen"),
         ("show_animations", "Animationen anzeigen"),
+        ("show_motion_layers", "Bewegung anzeigen"),
+        ("show_heatmap", "Heatmap anzeigen"),
         ("show_safe_zones", "Safe-Zones anzeigen"),
         ("show_overlay_frame", "Overlay-Frame anzeigen"),
         ("minimal_mode", "Minimal Mode"),
@@ -2101,6 +2242,11 @@ def render_layout_panel() -> None:
         "System Map": "Netzwerk, Analyse, Denklandkarte",
         "Newspaper / Print": "Zeitung, Essay, Kommentar",
         "Festival / Color Splash": "aktiv, bunt, verspielt",
+        "Cyber Newsroom": "Hightech, Breaking-News, leuchtende Raster",
+        "Aurora Glass": "glasig, aurora, elegant fließend",
+        "Protest Poster": "laut, plakativer Aktivismus, Print-Kante",
+        "Data Bloom": "organische Datenblüte, Analyse trifft Natur",
+        "Velvet Studio": "dunkel, luxuriös, Talkshow-Nachtlook",
     }
     for name, theme in THEMES.items():
         active = "✓ " if st.session_state.layout == name else ""
@@ -2306,10 +2452,10 @@ def render_faders() -> None:
 
 def render_motion_panel() -> None:
     section("Bewegung / Heatmap")
+    st.caption("Ein/Aus fuer Bewegung und Heatmap sitzt auch im Bereich Sichtbarkeit.")
     st.multiselect("Transparente Bewegungs-Layer", MOTION_EFFECTS, key="motion_effects")
     st.slider("Bewegungs-Transparenz", 0, 80, key="motion_opacity")
     st.slider("Bewegungs-Geschwindigkeit", 10, 100, key="motion_speed")
-    st.toggle("Stimmungs-Heatmap anzeigen", key="show_heatmap")
     st.slider("Heatmap-Transparenz", 0, 75, key="heatmap_opacity")
     sentiment = chat_sentiment_state()
     st.caption(f"Aktuelle Stimmung: {sentiment['label']} · Score {sentiment['score']:.2f}")
@@ -2322,7 +2468,7 @@ def render_media_panel() -> None:
         value=st.session_state.video_url,
         placeholder="https://.../video.mp4 oder direkte WebM/HLS-URL",
     )
-    st.caption("Direkte MP4/WebM/HLS-Links laufen im Videoplayer. YouTube/TikTok-Webseiten bitte als Website/Embed einbinden.")
+    st.caption("Direkte MP4/WebM/HLS-Links laufen im Videoplayer. YouTube-Links werden automatisch als YouTube-Embed eingebettet.")
     v1, v2 = st.columns(2)
     with v1:
         st.toggle("Video anzeigen", key="show_video")
@@ -2344,7 +2490,7 @@ def render_media_panel() -> None:
         value=st.session_state.website_url,
         placeholder="https://example.com",
     )
-    st.caption("Normale Websites blockieren haeufig iframe-Einbettung. Nutze Embed-URLs fuer echte Interaktion oder lade eine serverseitige Vorschau.")
+    st.caption("Normale Websites blockieren haeufig iframe-Einbettung. Auto zeigt deshalb stabil eine Vorschau oder Link-Karte; Interaktiver Browser funktioniert nur mit embed-freundlichen Seiten.")
     st.toggle("Website anzeigen", key="show_website")
     if st.session_state.website_url:
         st.session_state.website_url = readable_url(st.session_state.website_url)

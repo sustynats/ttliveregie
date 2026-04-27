@@ -2425,6 +2425,7 @@ def render_static_overlay_redirect() -> None:
         "transparent": st.query_params.get("transparent", ""),
     }
     target = static_overlay_url("", room, **params)
+    absolute_target = static_overlay_url("https://ttliveregie.streamlit.app", room, **params)
     st.markdown(
         f"""
         <style>
@@ -2437,12 +2438,25 @@ def render_static_overlay_redirect() -> None:
         }}
         .overlay-redirect {{
             position:fixed; inset:0; display:grid; place-items:center; background:#050608; color:#fff;
-            font:800 24px system-ui, sans-serif;
+            font:800 24px system-ui, sans-serif; text-align:center; padding:32px;
         }}
+        .overlay-redirect a {{ color:#29f3ff; word-break:break-all; font-size:16px; display:block; margin-top:18px; }}
         </style>
         <meta http-equiv="refresh" content="0; url={html.escape(target)}">
-        <script>window.location.replace({json.dumps(target)});</script>
-        <div class="overlay-redirect">Overlay wird geladen...</div>
+        <script>
+        const target = {json.dumps(target)};
+        const absoluteTarget = {json.dumps(absolute_target)};
+        try {{ window.location.replace(target); }} catch (error) {{}}
+        setTimeout(() => {{
+            try {{ window.top.location.href = target; }} catch (error) {{}}
+        }}, 80);
+        </script>
+        <div class="overlay-redirect">
+            <div>
+                <div>Overlay wird geladen...</div>
+                <a href="{html.escape(target)}" target="_self">{html.escape(absolute_target)}</a>
+            </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -3137,6 +3151,9 @@ def main() -> None:
     overlay_mode = st.query_params.get("overlay", "0") == "1"
     if overlay_mode:
         st.markdown(css_for_overlay_mode(), unsafe_allow_html=True)
+        if st.query_params.get("native", "0") != "1":
+            render_static_overlay_redirect()
+            return
     else:
         load_persisted_state_once()
         st.markdown(css_for_streamlit(), unsafe_allow_html=True)
@@ -3146,9 +3163,6 @@ def main() -> None:
     update_countdown()
 
     if overlay_mode:
-        if st.query_params.get("native", "0") != "1":
-            render_static_overlay_redirect()
-            return
         state = load_overlay_state()
         st.components.v1.html(render_overlay_html(state), height=1080, scrolling=False)
         return

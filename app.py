@@ -79,7 +79,20 @@ AI_MODEL_LABELS = {
     "gemini-2.0-flash-lite": "Gemini 2.0 Flash Lite",
     "gemini-2.5-pro": "Gemini 2.5 Pro",
 }
-IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"]
+IMAGE_MODELS = [
+    "imagen-4.0-fast-generate-001",
+    "imagen-4.0-generate-001",
+    "imagen-3.0-generate-002",
+    "gemini-2.5-flash-image",
+    "gemini-2.0-flash-preview-image-generation",
+]
+IMAGE_MODEL_LABELS = {
+    "imagen-4.0-fast-generate-001": "Imagen 4 Fast",
+    "imagen-4.0-generate-001": "Imagen 4 Standard",
+    "imagen-3.0-generate-002": "Imagen 3",
+    "gemini-2.5-flash-image": "Gemini 2.5 Flash Image",
+    "gemini-2.0-flash-preview-image-generation": "Gemini 2.0 Flash Image Preview",
+}
 MOTION_EFFECTS = ["Nebel", "Lagerfeuer", "Lichtstaub", "Scanlines", "Regen", "Funkeln", "Wellen"]
 POSITIVE_WORDS = {
     "gut", "super", "liebe", "stark", "danke", "yes", "ja", "richtig", "wichtig", "hoffnung", "freude",
@@ -835,7 +848,7 @@ def init_state() -> None:
         "ai_model": "gemini-2.5-flash",
         "ai_max_chars": 1200,
         "image_prompt": "",
-        "image_model": "gemini-2.5-flash-image",
+        "image_model": "imagen-4.0-fast-generate-001",
         "image_prompt_use_chat": True,
         "image_generation_error": "",
         "overlay_room_id": "",
@@ -1337,7 +1350,7 @@ def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool,
         return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY in Streamlit Secrets gefunden."
     model = st.session_state.get("image_model", "gemini-2.5-flash-image")
     if model not in IMAGE_MODELS:
-        model = "gemini-2.5-flash-image"
+        model = "imagen-4.0-fast-generate-001"
     visual_prompt = (
         "Create a high-quality vertical 9:16 abstract livestream overlay background. "
         "No text, no logos, no readable words, no people. Leave calm negative space on the right and bottom. "
@@ -1346,32 +1359,54 @@ def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool,
     )
     try:
         client = genai.Client(api_key=api_key)
-        kwargs: dict[str, Any] = {"model": model, "contents": [visual_prompt]}
-        if model == "gemini-2.0-flash-preview-image-generation" and genai_types is not None:
-            kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
-        response = client.models.generate_content(**kwargs)
-        parts = getattr(response, "parts", None)
-        if parts is None and getattr(response, "candidates", None):
-            parts = response.candidates[0].content.parts
-        for part in parts or []:
-            inline_data = getattr(part, "inline_data", None)
-            if inline_data is not None:
-                data = getattr(inline_data, "data", b"")
-                mime_type = getattr(inline_data, "mime_type", "image/png") or "image/png"
-                if isinstance(data, str):
-                    encoded = data
-                else:
-                    encoded = base64.b64encode(data).decode("ascii")
-                data_url = f"data:{mime_type};base64,{encoded}"
-                image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
-                title = f"KI-Bild {time.strftime('%H:%M:%S')}"
-                st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
-                st.session_state.active_image_id = image_id
-                st.session_state.show_background = True
-                st.session_state.bg_brightness = 118
-                st.session_state.bg_dim = 24
-                st.session_state.image_generation_error = ""
-                return True, "Hintergrundbild generiert und aktiviert."
+        if model.startswith("imagen-"):
+            config = None
+            if genai_types is not None:
+                config = genai_types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="9:16",
+                    person_generation="dont_allow",
+                )
+            response = client.models.generate_images(model=model, prompt=visual_prompt, config=config)
+            for generated in getattr(response, "generated_images", []) or []:
+                image_obj = getattr(generated, "image", None)
+                data = getattr(image_obj, "image_bytes", None) or getattr(image_obj, "imageBytes", None)
+                if data:
+                    encoded = data if isinstance(data, str) else base64.b64encode(data).decode("ascii")
+                    data_url = f"data:image/png;base64,{encoded}"
+                    image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
+                    title = f"KI-Bild {time.strftime('%H:%M:%S')}"
+                    st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
+                    st.session_state.active_image_id = image_id
+                    st.session_state.show_background = True
+                    st.session_state.bg_brightness = 118
+                    st.session_state.bg_dim = 24
+                    st.session_state.image_generation_error = ""
+                    return True, f"Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} generiert und aktiviert."
+        else:
+            kwargs: dict[str, Any] = {"model": model, "contents": [visual_prompt]}
+            if model == "gemini-2.0-flash-preview-image-generation" and genai_types is not None:
+                kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
+            response = client.models.generate_content(**kwargs)
+            parts = getattr(response, "parts", None)
+            if parts is None and getattr(response, "candidates", None):
+                parts = response.candidates[0].content.parts
+            for part in parts or []:
+                inline_data = getattr(part, "inline_data", None)
+                if inline_data is not None:
+                    data = getattr(inline_data, "data", b"")
+                    mime_type = getattr(inline_data, "mime_type", "image/png") or "image/png"
+                    encoded = data if isinstance(data, str) else base64.b64encode(data).decode("ascii")
+                    data_url = f"data:{mime_type};base64,{encoded}"
+                    image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
+                    title = f"KI-Bild {time.strftime('%H:%M:%S')}"
+                    st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
+                    st.session_state.active_image_id = image_id
+                    st.session_state.show_background = True
+                    st.session_state.bg_brightness = 118
+                    st.session_state.bg_dim = 24
+                    st.session_state.image_generation_error = ""
+                    return True, f"Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} generiert und aktiviert."
         return False, "Google hat kein Bild zurückgegeben. Bitte Prompt oder Modell wechseln."
     except Exception as exc:
         return False, friendly_ai_error(exc)
@@ -2274,7 +2309,10 @@ def render_image_panel() -> None:
         placeholder="z. B. ruhige abstrakte Studiobühne, goldene Akzente, viel Platz rechts",
     )
     st.toggle("Chat der letzten 5 Minuten in Bildprompt einbeziehen", key="image_prompt_use_chat")
-    st.selectbox("Bildmodell", IMAGE_MODELS, key="image_model")
+    if st.session_state.get("image_model") not in IMAGE_MODELS:
+        st.session_state.image_model = "imagen-4.0-fast-generate-001"
+    st.selectbox("Bildmodell", IMAGE_MODELS, key="image_model", format_func=lambda value: IMAGE_MODEL_LABELS.get(value, value))
+    st.caption("Imagen-Modelle nutzen `generate_images` und sind laut Google teils Paid-Tier-abhaengig. Falls eins nicht verfuegbar ist, anderes Modell testen.")
     if st.button("KI-Hintergrund erstellen", key="image_generate_ai", use_container_width=True):
         ok, message = generate_background_image(st.session_state.image_prompt, st.session_state.image_prompt_use_chat)
         if ok:

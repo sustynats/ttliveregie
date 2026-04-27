@@ -28,7 +28,7 @@ Dann im Browser oeffnen:
 7. Direkte MP4/WebM/HLS-Videos koennen direkt auf der Bühne mit Play/Pause und 10-Sekunden-Schritten gesteuert werden. YouTube nutzt die eigenen Embed-Controls.
 8. Unter `Medien / Web` Websites als iframe einbetten. Viele Seiten blockieren iframe-Einbettung; `Auto` zeigt fuer bekannte Blocker eine Website-Vorschau oder Link-Karte statt der kaputten Browserflaeche. Embed-URLs funktionieren am zuverlaessigsten.
 9. Unter `Bewegung / Heatmap` transparente Motion-Layer wie Nebel, Lagerfeuer, Lichtstaub, Scanlines, Regen, Funkeln und Wellen aktivieren und die Chat-Stimmungs-Heatmap einblenden.
-10. Unter `Bilder` per Google API ein KI-Hintergrundbild aus einem Prompt und optional den Chat-Schwerpunkten der letzten 5 Minuten erzeugen.
+10. Unter `Bilder` per Google API ein KI-Hintergrundbild aus einem Prompt und optional den Chat-Schwerpunkten der letzten 5 Minuten erzeugen. Standard ist Imagen 4 Fast; je nach Google-Konto kann Imagen Paid-Tier erfordern.
 11. Unter `KI-Check` eine kurze sichtbare Zusammenfassung erzeugen und als Karte auf die Buehne legen. Die maximale Antwortlaenge ist bis 3000 Zeichen einstellbar.
 12. Szenen speichern, ueberschreiben, duplizieren, umbenennen, loeschen, importieren und exportieren.
 13. Settings, Szenen und Bildbibliothek werden pro Browser/Host im Browser localStorage gespeichert; zusaetzlich schreibt die App pro Browser-ID eine lokale JSON-Fallback-Datei.

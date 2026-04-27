@@ -1036,14 +1036,12 @@ def sanitize_visual_state_dict(state: dict[str, Any]) -> dict[str, Any]:
         state["layout"] = "Neon Pop"
     theme = THEMES[state["layout"]]
     state["cloud_style"] = state.get("cloud_style") or theme.get("cloud_style", "Color Burst")
-    if state["cloud_style"] not in CLOUD_STYLES:
-        state["cloud_style"] = theme.get("cloud_style", "Color Burst")
     state["stage_edit_mode"] = bool(state.get("stage_edit_mode", False))
     state["topic_x"] = int(clamp_number(state.get("topic_x"), 36, 15, 85))
     state["topic_y"] = int(clamp_number(state.get("topic_y"), 18, 8, 55))
     state["topic_width"] = int(clamp_number(state.get("topic_width"), 68, 35, 88))
     state["topic_height"] = int(clamp_number(state.get("topic_height"), 24, 12, 42))
-    state["topic_text_size"] = int(clamp_number(state.get("topic_text_size"), 100, 55, 125))
+    state["topic_text_size"] = int(clamp_number(state.get("topic_text_size"), 100, 65, 145))
     state["keyword_size"] = int(clamp_number(state.get("keyword_size"), 55, 35, 125))
     state["keyword_density"] = int(clamp_number(state.get("keyword_density"), 45, 10, 100))
     state["cloud_pos_x"] = int(clamp_number(state.get("cloud_pos_x"), 50, 8, 92))
@@ -1064,22 +1062,6 @@ def sanitize_visual_state_dict(state: dict[str, Any]) -> dict[str, Any]:
     state["bg_dim"] = int(clamp_number(state.get("bg_dim"), 25, 0, 50))
     state["bg_brightness"] = int(clamp_number(state.get("bg_brightness"), 115, 80, 180))
     state["bg_opacity"] = int(clamp_number(state.get("bg_opacity"), 100, 0, 100))
-    state["topic_letter_spacing"] = int(clamp_number(state.get("topic_letter_spacing"), 0, 0, 12))
-    state["highlight_letter_spacing"] = int(clamp_number(state.get("highlight_letter_spacing"), 0, 0, 12))
-    for key, fallback in {
-        "topic_font_family": theme.get("font", "Poppins"),
-        "keyword_font_family": "Inter",
-        "highlight_font_family": theme.get("font", "Playfair Display"),
-        "countdown_font_family": "Inter",
-    }.items():
-        if state.get(key) not in FONT_PRESETS:
-            state[key] = fallback if fallback in FONT_PRESETS else "Inter"
-    state["topic_font_weight"] = int(clamp_number(state.get("topic_font_weight"), 850, 400, 950))
-    state["keyword_font_weight"] = int(clamp_number(state.get("keyword_font_weight"), 760, 400, 950))
-    state["highlight_font_weight"] = int(clamp_number(state.get("highlight_font_weight"), 900, 400, 950))
-    state["countdown_font_weight"] = int(clamp_number(state.get("countdown_font_weight"), 850, 400, 950))
-    if state.get("topic_text_transform") not in {"normal", "uppercase"}:
-        state["topic_text_transform"] = "normal"
     return state
 
 
@@ -1112,17 +1094,6 @@ VISUAL_SANITIZED_KEYS = {
     "bg_dim",
     "bg_brightness",
     "bg_opacity",
-    "topic_letter_spacing",
-    "highlight_letter_spacing",
-    "topic_font_family",
-    "keyword_font_family",
-    "highlight_font_family",
-    "countdown_font_family",
-    "topic_font_weight",
-    "keyword_font_weight",
-    "highlight_font_weight",
-    "countdown_font_weight",
-    "topic_text_transform",
 }
 
 
@@ -1132,85 +1103,6 @@ def sanitize_session_visual_state() -> None:
         value = sanitized.get(key)
         if key in st.session_state:
             st.session_state[key] = value
-
-
-def repair_visual_state() -> None:
-    """Return the stage to a readable, conservative live-ready state."""
-    st.session_state.layout = "Neon Pop"
-    st.session_state.cloud_style = "Color Burst"
-    st.session_state.cloud_style_locked = False
-    st.session_state.show_topic = True
-    st.session_state.show_cloud = True
-    st.session_state.show_highlight = False
-    st.session_state.show_countdown = False
-    st.session_state.show_clock = True
-    st.session_state.show_live_since = True
-    st.session_state.show_background = True
-    st.session_state.show_animations = True
-    st.session_state.show_motion_layers = True
-    st.session_state.show_heatmap = False
-    st.session_state.show_overlay_frame = True
-    st.session_state.clear_overlay = False
-    st.session_state.minimal_mode = False
-    st.session_state.focus_mode = False
-    st.session_state.stage_edit_mode = False
-    st.session_state.topic_font_family = "Poppins"
-    st.session_state.keyword_font_family = "Inter"
-    st.session_state.highlight_font_family = "Playfair Display"
-    st.session_state.countdown_font_family = "Inter"
-    st.session_state.topic_font_weight = 850
-    st.session_state.keyword_font_weight = 760
-    st.session_state.highlight_font_weight = 900
-    st.session_state.countdown_font_weight = 850
-    st.session_state.topic_letter_spacing = 0
-    st.session_state.highlight_letter_spacing = 0
-    st.session_state.topic_text_transform = "normal"
-    st.session_state.topic_text_size = 88
-    st.session_state.keyword_size = 55
-    st.session_state.keyword_density = 45
-    st.session_state.cloud_pos_x = 50
-    st.session_state.cloud_pos_y = 50
-    st.session_state.cloud_width = 58
-    st.session_state.cloud_height = 58
-    st.session_state.cloud_tilt = 0
-    st.session_state.topic_x = 36
-    st.session_state.topic_y = 18
-    st.session_state.topic_width = 68
-    st.session_state.topic_height = 24
-    st.session_state.clock_x = 82
-    st.session_state.clock_y = 12
-    st.session_state.clock_width = 24
-    st.session_state.clock_height = 9
-    st.session_state.clock_text_size = 100
-    st.session_state.bg_dim = 18
-    st.session_state.bg_blur = 0
-    st.session_state.bg_brightness = 125
-    st.session_state.bg_opacity = 100
-    st.session_state.bg_zoom = 100
-    st.session_state.bg_pos_x = 50
-    st.session_state.bg_pos_y = 50
-    st.session_state.overlay_opacity = 100
-    st.session_state.motion_opacity = 28
-    st.session_state.motion_speed = 55
-    st.session_state.animation_intensity = 55
-    st.session_state.user_adjusted_cloud_position = False
-    st.session_state.user_adjusted_image_look = True
-    sanitize_session_visual_state()
-
-
-def visual_state_has_no_content() -> bool:
-    visible_keys = [
-        "show_topic",
-        "show_cloud",
-        "show_highlight",
-        "show_countdown",
-        "show_clock",
-        "show_video",
-        "show_website",
-        "show_pdf",
-        "show_ai_card",
-    ]
-    return not st.session_state.get("clear_overlay") and not any(bool(st.session_state.get(key)) for key in visible_keys)
 
 
 def normalize_motion_effects(effects: Any) -> list[str]:
@@ -1317,8 +1209,6 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.show_ai_card = False
     st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
     sanitize_session_visual_state()
-    if visual_state_has_no_content():
-        repair_visual_state()
     if not payload.get("user_adjusted_cloud_position"):
         st.session_state.cloud_pos_x = 50
         st.session_state.cloud_pos_y = 50
@@ -3450,7 +3340,6 @@ def render_quick_actions() -> None:
     actions = [
         ("Freeze", "freeze"),
         ("Reset", "reset"),
-        ("Bühne reparieren", "repair_stage"),
         ("Auto-Highlight", "auto_highlight_action"),
         ("Aufhellen", "brighten"),
         ("Focus", "focus"),
@@ -3475,8 +3364,6 @@ def apply_quick_action(action: str) -> None:
         st.session_state.last_keywords_snapshot = []
         st.session_state.filtered_top = []
         st.session_state.filtered_total = 0
-    elif action == "repair_stage":
-        repair_visual_state()
     elif action == "auto_highlight_action":
         st.session_state.auto_highlight = True
         st.session_state.highlight_word = ""
@@ -3556,6 +3443,7 @@ def sync_background_visibility() -> None:
 
 def set_background_visible(value: bool) -> None:
     st.session_state.show_background = bool(value)
+    st.session_state.background_visible_control = bool(value)
 
 
 def activate_image(image_id: str) -> None:
@@ -3737,7 +3625,7 @@ def render_typography_panel() -> None:
     )
     st.slider("Thema Größe", 65, 180, key="topic_text_size")
     st.slider("Thema Gewicht", 300, 950, key="topic_font_weight", step=50)
-    st.slider("Thema Letter Spacing", 0, 12, key="topic_letter_spacing")
+    st.slider("Thema Letter Spacing", -8, 18, key="topic_letter_spacing")
     st.selectbox("Thema Text Transform", transforms, key="topic_text_transform")
     st.selectbox("Keyword Font", fonts, key="keyword_font_family")
     st.markdown(
@@ -3754,7 +3642,7 @@ def render_typography_panel() -> None:
     )
     st.slider("Highlight Größe", 60, 190, key="highlight_text_size")
     st.slider("Highlight Gewicht", 300, 950, key="highlight_font_weight", step=50)
-    st.slider("Highlight Letter Spacing", 0, 12, key="highlight_letter_spacing")
+    st.slider("Highlight Letter Spacing", -8, 18, key="highlight_letter_spacing")
     st.selectbox("Countdown / Uhr Font", fonts, key="countdown_font_family")
     st.markdown(
         f'<div class="font-preview compact" style="font-family:{font_stack(st.session_state.countdown_font_family)}">LIVE 12:34 · seit 00:12:08</div>',

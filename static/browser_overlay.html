@@ -823,14 +823,8 @@
           bg.style.backgroundImage = "";
         }
 
-        if (!hidden && state.show_topic !== false && escText(state.topic || "").trim()) {
-          topic.textContent = escText(state.topic || "");
-          topic.style.fontSize = "calc(clamp(38px, 7.8vw, 82px) * " + clamp((state.topic_text_size || 100) / 100, .4, 1.5) + ")";
-          topic.classList.remove("hidden");
-        } else {
-          topic.textContent = "";
-          topic.classList.add("hidden");
-        }
+        topic.textContent = (!hidden && state.show_topic !== false) ? escText(state.topic || "") : "";
+        topic.style.fontSize = "calc(clamp(38px, 7.8vw, 82px) * " + clamp((state.topic_text_size || 100) / 100, .4, 2.4) + ")";
 
         if (!hidden && state.show_clock !== false) {
           clock.innerHTML = "<b>LIVE " + escText(state.live_duration || "00:00:00") + "</b>" +

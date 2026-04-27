@@ -1119,75 +1119,72 @@ def static_state_file(room_id: str | None = None) -> Path:
     return STATIC_DIR / f"overlay_state_{safe_profile_id(room_id or st.session_state.get('overlay_room_id', 'default'))}.json"
 
 
-def _is_streamlit_cloud_host(base_url: str) -> bool:
-    """Heuristik: Streamlit-Cloud-Host an der URL erkennen."""
-    try:
-        host = (urlparse(base_url).hostname or "").lower()
-    except Exception:
-        host = ""
-    return host.endswith(".streamlit.app") or host.endswith(".streamlitapp.com")
+# GitHub-Pages-URL der öffentlichen Bühne. Diese URL ist immer ohne Auth
+# erreichbar — das ist der einzige Pfad, der zuverlässig in TikTok Live Studio
+# als Browserquelle funktioniert. State-Sync läuft über GitHub Gist (siehe
+# render_gist_sync_panel / push_state_to_gist).
+GITHUB_PAGES_BASE = "https://sustynats.github.io/ttliveregie"
 
 
-def _static_path_for(base_url: str, filename: str) -> str:
-    """Streamlit-Cloud serviert Static unter `/~/+/static/...` ohne Auth.
+def _is_streamlit_cloud_runtime() -> bool:
+    """Erkennt, ob das Regiepult auf Streamlit Cloud läuft.
 
-    `/app/static/...` würde von Cloud's Reverse-Proxy als App-Route
-    eingestuft und triggert den Auth-Redirect (HTTP 303 → /-/login),
-    selbst bei "public and searchable"-Apps. Lokal (Streamlit-Server
-    selbst) ist es genau umgekehrt — `/app/static/` funktioniert,
-    `/~/+/static/` nicht.
+    Prüft Host-Header (über st.context, sofern verfügbar) und Cloud-typische
+    Environment-Variablen.
     """
-    if _is_streamlit_cloud_host(base_url):
-        return f"/~/+/static/{filename}"
-    return f"/app/static/{filename}"
-
-
-def _runtime_static_prefix() -> str:
-    """Pfad-Präfix für Static-Assets aus dem laufenden Streamlit heraus.
-
-    Wird beim iframe-Embed in der Bühne (render_stage) und beim
-    Overlay-Redirect verwendet. Cloud-Detection geht über mehrere
-    Quellen, weil keine davon zuverlässig in allen Streamlit-Versionen
-    verfügbar ist.
-    """
-    # 1) st.context.headers (Streamlit ≥ 1.32)
     try:
-        host_header = ""
         ctx = getattr(st, "context", None)
         if ctx is not None:
             headers = getattr(ctx, "headers", None)
             if headers is not None:
-                # headers ist ein Mapping-ähnliches Objekt
-                host_header = (headers.get("Host") or headers.get("host") or "").lower()
-        if host_header.endswith(".streamlit.app") or host_header.endswith(".streamlitapp.com"):
-            return "/~/+/static"
+                host = (headers.get("Host") or headers.get("host") or "").lower()
+                if host.endswith(".streamlit.app") or host.endswith(".streamlitapp.com"):
+                    return True
     except Exception:
         pass
-    # 2) Environment-Variablen (Streamlit Cloud setzt z. B. HOSTNAME=streamlit-…)
-    hostname = os.environ.get("HOSTNAME", "")
-    if hostname.startswith("streamlit-"):
-        return "/~/+/static"
+    if os.environ.get("HOSTNAME", "").startswith("streamlit-"):
+        return True
     if os.environ.get("STREAMLIT_RUNTIME_ENV", "").lower() == "cloud":
-        return "/~/+/static"
+        return True
     if os.environ.get("STREAMLIT_SHARING_MODE", "").lower() in {"cloud", "share"}:
-        return "/~/+/static"
-    # 3) Default: lokaler Streamlit-Server
-    return "/app/static"
+        return True
+    return False
 
 
 def static_overlay_url(base_url: str, room_id: str, **params: str) -> str:
-    """URL der reinen Bühnen-HTML ohne Streamlit-Chrome.
+    """Lokale Streamlit-Static-URL der Bühne (nur für `streamlit run` zuhause).
 
-    Zeigt direkt auf static/stage.html — TikTok Live Studio sieht damit kein
-    Streamlit, keine Login-Wall, kein Spinner. Static-Assets sind unter
-    `/~/+/static/` von Streamlit Cloud public verfügbar (ohne Auth-Redirect),
-    auch wenn die App ansonsten Auth-protected ist.
+    Für Streamlit Cloud nicht geeignet — dort triggert `/app/static/` einen
+    Auth-Redirect, solange die App nicht wirklich public ist. Verwende stattdessen
+    `github_pages_stage_url()` für die produktive TTLS-Browserquelle.
     """
     query: dict[str, str] = {"room": safe_profile_id(room_id)}
     query.update({key: value for key, value in params.items() if value})
     encoded = "&".join(f"{key}={value}" for key, value in query.items())
-    path = _static_path_for(base_url, STATIC_STAGE_FILE.name)
-    return f"{base_url.rstrip('/')}{path}?{encoded}"
+    return f"{base_url.rstrip('/')}/app/static/{STATIC_STAGE_FILE.name}?{encoded}"
+
+
+def github_pages_stage_url(
+    room_id: str | None = None,
+    gist_id: str | None = None,
+    gist_user: str | None = None,
+    **params: str,
+) -> str:
+    """Public GitHub-Pages-URL der Bühne mit Gist-State-Quelle.
+
+    Genau diese URL gehört in TikTok Live Studio als Browserquelle. Sie ist
+    nicht auth-protected, lädt direkt eine statische HTML-Datei und pollt einen
+    GitHub-Gist (Raw-URL) für State-Updates aus dem Regiepult.
+    """
+    room = safe_profile_id(room_id or st.session_state.get("overlay_room_id", "default") or "default")
+    query: dict[str, str] = {"room": room}
+    if gist_id:
+        query["gist"] = gist_id
+    if gist_user:
+        query["gist_user"] = gist_user
+    query.update({k: v for k, v in params.items() if v})
+    encoded = "&".join(f"{k}={v}" for k, v in query.items())
+    return f"{GITHUB_PAGES_BASE}/stage.html?{encoded}"
 
 
 def apply_persistent_payload(payload: dict[str, Any]) -> None:
@@ -2608,6 +2605,128 @@ def persist_overlay_state() -> None:
         static_state_file("default").write_text(safe, encoding="utf-8")
     except Exception:
         pass
+    # Gist-Sync: pusht den State zu GitHub Gist, damit die GitHub-Pages-Bühne ihn lesen kann.
+    # Debounced (max. 1x pro 2s) und still — Fehler landen nur in session_state.gist_status.
+    try:
+        push_state_to_gist_if_due(safe)
+    except Exception as exc:
+        st.session_state["gist_status"] = {"ok": False, "msg": f"Sync-Fehler: {exc}", "at": time.time()}
+
+
+# ---- GitHub-Gist State-Sync --------------------------------------------------
+
+
+def _gist_token() -> str:
+    """Liefert den GitHub-PAT aus Secrets oder Session-State (User-Eingabe)."""
+    try:
+        secret = st.secrets.get("GITHUB_GIST_TOKEN", "") if hasattr(st, "secrets") else ""
+    except Exception:
+        secret = ""
+    return (secret or st.session_state.get("gist_token", "") or "").strip()
+
+
+def _gist_id() -> str:
+    try:
+        secret = st.secrets.get("GITHUB_GIST_ID", "") if hasattr(st, "secrets") else ""
+    except Exception:
+        secret = ""
+    return (secret or st.session_state.get("gist_id", "") or "").strip()
+
+
+def _gist_user() -> str:
+    try:
+        secret = st.secrets.get("GITHUB_GIST_USER", "") if hasattr(st, "secrets") else ""
+    except Exception:
+        secret = ""
+    return (secret or st.session_state.get("gist_user", "sustynats") or "sustynats").strip()
+
+
+def push_state_to_gist_if_due(serialized_state: str) -> None:
+    """Debounced PATCH-Push des State-JSON an einen GitHub Gist.
+
+    Throttle: max. 1 Push pro 2 Sekunden. Pläne fürs nächste Push-Fenster werden
+    in `st.session_state.gist_pending` gehalten und beim nächsten Streamlit-Rerun
+    nachgeholt.
+    """
+    token = _gist_token()
+    gist_id = _gist_id()
+    if not token or not gist_id:
+        return  # Sync nicht konfiguriert — still ignorieren
+    now = time.time()
+    last = float(st.session_state.get("gist_last_push_at", 0.0))
+    if now - last < 2.0:
+        st.session_state["gist_pending"] = serialized_state
+        return
+    _push_state_to_gist_now(serialized_state, token, gist_id)
+
+
+def _push_state_to_gist_now(serialized_state: str, token: str, gist_id: str) -> None:
+    import urllib.request
+    import urllib.error
+
+    room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
+    fname = f"state-{room}.json"
+    body = json.dumps({"files": {fname: {"content": serialized_state}}}).encode("utf-8")
+    req = urllib.request.Request(
+        f"https://api.github.com/gists/{gist_id}",
+        data=body,
+        method="PATCH",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "ttliveregie/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            ok = 200 <= resp.status < 300
+            st.session_state["gist_last_push_at"] = time.time()
+            st.session_state["gist_status"] = {
+                "ok": ok,
+                "msg": f"OK ({resp.status})" if ok else f"HTTP {resp.status}",
+                "at": time.time(),
+            }
+            st.session_state.pop("gist_pending", None)
+    except urllib.error.HTTPError as e:
+        st.session_state["gist_status"] = {
+            "ok": False,
+            "msg": f"HTTP {e.code}: {e.reason}",
+            "at": time.time(),
+        }
+    except Exception as e:
+        st.session_state["gist_status"] = {
+            "ok": False,
+            "msg": f"{type(e).__name__}: {e}",
+            "at": time.time(),
+        }
+
+
+def create_gist_for_user(token: str, room: str, initial_state: str) -> tuple[str, str]:
+    """Legt einen neuen Public Gist an und gibt (gist_id, owner_login) zurück."""
+    import urllib.request
+    import urllib.error
+
+    fname = f"state-{safe_profile_id(room)}.json"
+    body = json.dumps({
+        "description": "ttliveregie overlay state",
+        "public": True,
+        "files": {fname: {"content": initial_state}},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.github.com/gists",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "ttliveregie/1.0",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return str(data.get("id", "")), str((data.get("owner") or {}).get("login", ""))
 
 
 def load_overlay_state() -> dict[str, Any]:
@@ -2649,10 +2768,19 @@ def render_stage(state: dict[str, Any], height: int = 860) -> None:
     # — das ist die Ursache des Reload-Loops. Die src darf sich nur ändern,
     # wenn der User aktiv `room` oder `edit` umschaltet. Das Polling im
     # Inneren von stage.html bringt die State-Updates rein.
-    # Pfad: lokal `/app/static/`, Streamlit Cloud `/~/+/static/`
-    # (Cloud würde sonst beim Aufruf der App-Route einen Auth-Redirect
-    # auslösen).
-    src = f"{_runtime_static_prefix()}/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
+    # Embed der Bühne als iframe — nur der lokale Streamlit-Static-Pfad funktioniert
+    # zuverlässig (Cloud-Auth blockiert /app/static/). Die TTLS-Browserquelle nutzt
+    # statt dieses Embeds die GitHub-Pages-URL (siehe primary_browser_source_url).
+    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
+    # Auf Streamlit Cloud zeigen wir hier eine Info statt eines kaputten Frames,
+    # damit die User die GitHub-Pages-URL als TTLS-Quelle nutzen.
+    if _is_streamlit_cloud_runtime():
+        st.info(
+            "Bühnen-Vorschau im Cloud-Regiepult ist deaktiviert (Streamlit-Auth "
+            "blockiert den Static-Pfad). Die produktive TikTok-Live-Studio-URL "
+            "oben funktioniert davon unabhängig."
+        )
+        return
     iframe_html = (
         '<!doctype html><html><head><meta charset="utf-8"><style>'
         'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'
@@ -2684,12 +2812,13 @@ def render_static_overlay_redirect() -> None:
         "bg": st.query_params.get("bg", ""),
         "transparent": st.query_params.get("transparent", ""),
     }
-    # Relativer Redirect-Target: nutzt den Runtime-Prefix (Cloud vs lokal)
+    # Relativer Redirect-Target auf den lokalen Static-Pfad (nur lokal sinnvoll;
+    # Cloud-Nutzer sollten direkt die GitHub-Pages-URL nutzen).
     query: dict[str, str] = {"room": room}
     query.update({k: v for k, v in params.items() if v})
     encoded = "&".join(f"{k}={v}" for k, v in query.items())
-    target = f"{_runtime_static_prefix()}/{STATIC_STAGE_FILE.name}?{encoded}"
-    absolute_target = static_overlay_url("https://ttliveregie.streamlit.app", room, **params)
+    target = f"./app/static/{STATIC_STAGE_FILE.name}?{encoded}"
+    absolute_target = github_pages_stage_url(room, **params)
     st.markdown(
         f"""
         <style>
@@ -3431,26 +3560,11 @@ def render_safety_panel() -> None:
 def primary_browser_source_url() -> str:
     """Liefert die EINE Browserquellen-URL, die der User in TikTok Live Studio einfügt.
 
-    Wenn das Regiepult auf Streamlit Cloud läuft (erkennbar an `.streamlit.app`-Host),
-    bauen wir die URL absolut mit dem Cloud-Pfad-Schema (`/~/+/static/`). Lokal
-    nehmen wir `http://localhost:8501/app/static/`. So passt EINE Box für beide
-    Welten — keine "Cloud vs lokal"-Verwirrung mehr.
+    Das ist immer die GitHub-Pages-URL der Bühne, parametrisiert mit der aktuellen
+    Room-ID und (sofern konfiguriert) der Gist-ID für State-Sync. Public, kein Auth.
     """
     room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
-    base = ""
-    try:
-        ctx = getattr(st, "context", None)
-        headers = getattr(ctx, "headers", None) if ctx is not None else None
-        host = (headers.get("Host") or headers.get("host") or "").lower() if headers is not None else ""
-        if host:
-            scheme = "https" if (host.endswith(".streamlit.app") or host.endswith(".streamlitapp.com")) else "http"
-            base = f"{scheme}://{host}"
-    except Exception:
-        base = ""
-    if not base:
-        # Lokal: vernünftiger Default
-        base = "http://localhost:8501"
-    return static_overlay_url(base, room)
+    return github_pages_stage_url(room, gist_id=_gist_id() or None, gist_user=_gist_user() or None)
 
 
 def render_primary_browser_source(prefix: str = "stage_topbar") -> None:
@@ -3460,13 +3574,22 @@ def render_primary_browser_source(prefix: str = "stage_topbar") -> None:
     eine URL kennen, die er in TikTok Live Studio einfügt.
     """
     url = primary_browser_source_url()
-    st.markdown("##### 🎬 TikTok Live Studio Browserquelle")
+    st.markdown("##### TikTok Live Studio Browserquelle")
     st.code(url, language=None)
-    st.caption(
-        "Diese URL als Browserquelle in TikTok Live Studio einfügen. "
-        "Static-Pfade unter `/~/+/static/` sind auf Streamlit Cloud immer "
-        "ohne Login erreichbar — auch wenn die App selbst Auth hat."
-    )
+    has_gist = bool(_gist_id() and _gist_token())
+    if has_gist:
+        status = st.session_state.get("gist_status") or {}
+        if status.get("ok"):
+            st.caption(f"Gist-Sync aktiv — letzter Push: {status.get('msg','')}.")
+        elif status.get("msg"):
+            st.caption(f"Gist-Sync konfiguriert, letzter Status: {status.get('msg')}.")
+        else:
+            st.caption("Gist-Sync konfiguriert. State wird beim nächsten Update gepusht.")
+    else:
+        st.caption(
+            "Diese URL ist auf GitHub Pages gehostet — immer ohne Login erreichbar. "
+            "Für Live-Updates aus der Regie noch Gist-Sync einrichten (Tab Backup → Gist-Sync)."
+        )
 
 
 def render_persistence_panel() -> None:
@@ -3505,24 +3628,92 @@ def render_persistence_panel() -> None:
         clear_persisted_state()
         st.warning("Lokaler Speicher wurde geleert. Bitte App neu laden.")
 
+    render_gist_sync_panel()
+
     with st.expander("Erweiterte URLs (Debug, Test, Lokal, Transparent)", expanded=False):
+        room = st.session_state.overlay_room_id
+        gist_id = _gist_id() or None
+        gist_user = _gist_user() or None
+        gh_main = github_pages_stage_url(room, gist_id=gist_id, gist_user=gist_user)
+        gh_debug = github_pages_stage_url(room, gist_id=gist_id, gist_user=gist_user, debug="1")
+        gh_transparent = github_pages_stage_url(room, gist_id=gist_id, gist_user=gist_user, bg="transparent")
+        gh_test = f"{GITHUB_PAGES_BASE}/stage.html?test=1"
+        local_url = static_overlay_url("http://localhost:8501", room)
+        render_copyable_url("GitHub Pages Bühne (Standard)", gh_main, "gh_main")
+        render_copyable_url("GitHub Pages Debug (Debug-Banner)", gh_debug, "gh_debug")
+        render_copyable_url("GitHub Pages Transparent (kein BG)", gh_transparent, "gh_transparent")
+        render_copyable_url("GitHub Pages Test (TT LIVE STUDIO TEST OK)", gh_test, "gh_test")
+        render_copyable_url("Lokale Bühne (nur für `streamlit run` zuhause)", local_url, "ttls_local")
+
+
+def render_gist_sync_panel() -> None:
+    """Konfiguration für GitHub-Gist-State-Sync."""
+    with st.expander("Gist-Sync (TTLS-Live-Updates)", expanded=not bool(_gist_id() and _gist_token())):
         st.caption(
-            "Static-Pfade unter `/~/+/static/` werden von Streamlit Cloud immer ohne Auth ausgeliefert "
-            "— ein Auth-Redirect (alter Bug) sollte nicht mehr passieren. Sollte deine Bühne trotzdem "
-            "weißen Bildschirm zeigen, hilft `?debug=1` (Debug-Banner einblenden)."
+            "Damit die GitHub-Pages-Bühne in TikTok Live Studio Live-Updates aus der Regie sieht, "
+            "pusht das Regiepult den Overlay-State in einen GitHub Gist. Du brauchst einmalig einen "
+            "Personal Access Token mit Scope `gist`."
         )
-        static_cloud_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id)
-        static_local_url = static_overlay_url("http://localhost:8501", st.session_state.overlay_room_id)
-        debug_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, debug="1")
-        transparent_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, bg="transparent")
-        test_url = f"https://ttliveregie.streamlit.app/~/+/static/{STATIC_STAGE_FILE.name}?test=1"
-        health_url = "https://ttliveregie.streamlit.app/~/+/static/ttls_health.html"
-        render_copyable_url("Cloud-Bühne (absolut)", static_cloud_url, "ttls_cloud_abs")
-        render_copyable_url("Lokale Bühne (für `streamlit run` zuhause)", static_local_url, "ttls_local")
-        render_copyable_url("Cloud Transparent (kein BG)", transparent_url, "ttls_transparent")
-        render_copyable_url("Cloud Debug (Debug-Banner)", debug_url, "ttls_debug")
-        render_copyable_url("Cloud Test (TT LIVE STUDIO TEST OK)", test_url, "ttls_test")
-        render_copyable_url("Health-Test (statisch)", health_url, "ttls_health")
+        st.markdown(
+            "[Token erstellen → github.com/settings/tokens (classic, Scope `gist`)]"
+            "(https://github.com/settings/tokens/new?scopes=gist&description=ttliveregie)"
+        )
+        cur_token = st.session_state.get("gist_token", "")
+        cur_gist = st.session_state.get("gist_id", "")
+        cur_user = st.session_state.get("gist_user", "sustynats")
+        token_in = st.text_input(
+            "GitHub Personal Access Token (Scope `gist`)",
+            value=cur_token,
+            type="password",
+            key="gist_token_input",
+            help="Wird nicht persistiert, lebt nur in dieser Browser-Session.",
+        )
+        gist_in = st.text_input(
+            "Gist-ID (leer = neu anlegen)",
+            value=cur_gist,
+            key="gist_id_input",
+            help="Beispiel: 9c1a8e... — oder leer lassen und Button unten drücken.",
+        )
+        user_in = st.text_input(
+            "GitHub-Username (Gist-Eigentümer)",
+            value=cur_user,
+            key="gist_user_input",
+        )
+        if st.button("Übernehmen", key="gist_apply"):
+            st.session_state["gist_token"] = token_in.strip()
+            st.session_state["gist_id"] = gist_in.strip()
+            st.session_state["gist_user"] = user_in.strip() or "sustynats"
+            st.success("Gist-Konfiguration gespeichert. Beim nächsten State-Update wird gepusht.")
+        if st.button("Neuen Gist anlegen", key="gist_create", help="Erzeugt einen neuen Public Gist mit dem aktuellen State."):
+            tok = (token_in or cur_token).strip()
+            if not tok:
+                st.error("Token fehlt.")
+            else:
+                try:
+                    serialized = json.dumps(current_overlay_state(), ensure_ascii=False)
+                    new_id, owner = create_gist_for_user(tok, st.session_state.overlay_room_id, serialized)
+                    if new_id:
+                        st.session_state["gist_token"] = tok
+                        st.session_state["gist_id"] = new_id
+                        if owner:
+                            st.session_state["gist_user"] = owner
+                        st.success(f"Gist {new_id} angelegt (Owner: {owner or 'unbekannt'}). URL oben aktualisiert.")
+                        st.rerun()
+                    else:
+                        st.error("Gist-Erstellung fehlgeschlagen — keine ID erhalten.")
+                except Exception as exc:
+                    st.error(f"Gist-Erstellung fehlgeschlagen: {exc}")
+        if st.button("Sync jetzt testen", key="gist_test"):
+            tok = _gist_token(); gid = _gist_id()
+            if not tok or not gid:
+                st.error("Token oder Gist-ID fehlt.")
+            else:
+                _push_state_to_gist_now(json.dumps(current_overlay_state(), ensure_ascii=False), tok, gid)
+                status = st.session_state.get("gist_status", {})
+                if status.get("ok"):
+                    st.success(f"Push erfolgreich: {status.get('msg')}")
+                else:
+                    st.error(f"Push-Fehler: {status.get('msg')}")
 
 
 def render_control_panel() -> None:

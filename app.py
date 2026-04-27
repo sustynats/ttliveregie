@@ -2265,6 +2265,26 @@ def css_for_streamlit() -> str:
     .stApp { background: #0d0f12; color: #f7f2ea; }
     [data-testid="stHeader"] { background: transparent; }
     [data-testid="stSidebar"] { display: none; }
+    /* Streamlit-Header (1440x60, z-index 999990) deckt unseren Topbar zu und
+       blockt Klicks auf den Edit-Modus-Toggle. Der Header ist größtenteils
+       leer; nur die Action-Buttons rechts (Deploy, Hamburger-Menü) brauchen
+       Klicks. Daher: Header und seine leeren Wrapper komplett auf
+       pointer-events:none, dann nur die echten Buttons wieder aktivieren. */
+    header.stAppHeader,
+    header[data-testid="stHeader"],
+    .stAppToolbar,
+    [data-testid="stToolbar"],
+    header.stAppHeader > div,
+    .stAppToolbar > div {
+        pointer-events: none !important;
+    }
+    header.stAppHeader .stToolbarActions,
+    header.stAppHeader .stToolbarActionButton,
+    header.stAppHeader .stMainMenu,
+    header.stAppHeader button,
+    header.stAppHeader a {
+        pointer-events: auto !important;
+    }
     /* streamlit_js_eval-Components sind unsichtbar gedacht. Auf Streamlit
        Cloud bleiben deren Skeleton-Loader (weiße Balken) manchmal hängen,
        wenn der Component-Bundle nicht zuverlässig lädt. Wir verstecken den

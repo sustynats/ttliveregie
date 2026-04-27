@@ -2904,6 +2904,17 @@ def render_motion_panel() -> None:
     st.caption(f"Aktuelle Stimmung: {sentiment['label']} · Score {sentiment['score']:.2f}")
 
 
+def clear_pdf_state() -> None:
+    st.session_state.pdf_name = ""
+    st.session_state.pdf_data = ""
+    st.session_state.show_pdf = False
+    st.session_state.pdf_visible_control = False
+
+
+def sync_pdf_visibility() -> None:
+    st.session_state.show_pdf = bool(st.session_state.get("pdf_visible_control", False))
+
+
 def render_media_panel() -> None:
     section("Video")
     st.session_state.video_url = st.text_input(
@@ -2967,20 +2978,19 @@ def render_media_panel() -> None:
     st.slider("Website Höhe", 15, 90, key="website_height")
 
     section("PDF")
+    st.session_state.pdf_visible_control = bool(st.session_state.get("show_pdf", False))
     pdf_upload = st.file_uploader("PDF hochladen", type=["pdf"], key="pdf_upload")
     if pdf_upload is not None:
         st.session_state.pdf_name = pdf_upload.name
         st.session_state.pdf_data = pdf_to_data_url(pdf_upload)
         st.session_state.show_pdf = True
+        st.session_state.pdf_visible_control = True
         st.success(f"PDF geladen: {pdf_upload.name}")
     p1, p2 = st.columns(2)
     with p1:
-        st.toggle("PDF anzeigen", key="show_pdf")
+        st.toggle("PDF anzeigen", key="pdf_visible_control", on_change=sync_pdf_visibility)
     with p2:
-        if st.button("PDF entfernen", key="pdf_clear", use_container_width=True):
-            st.session_state.pdf_name = ""
-            st.session_state.pdf_data = ""
-            st.session_state.show_pdf = False
+        st.button("PDF entfernen", key="pdf_clear", use_container_width=True, on_click=clear_pdf_state)
     if st.session_state.pdf_name:
         st.caption(f"Aktives PDF: {st.session_state.pdf_name}")
     st.radio("PDF Ausrichtung", ["Hochformat", "Querformat"], key="pdf_orientation", horizontal=True)

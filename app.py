@@ -2675,31 +2675,19 @@ def load_overlay_state() -> dict[str, Any]:
 def render_stage(state: dict[str, Any], height: int = 860) -> None:
     """Bettet die Bühne ins Regiepult ein.
 
-    Zwei Modi:
-    1. **Cloud**: GitHub-Pages-Iframe (selbe URL, die TikTok Live Studio sieht).
-       Live-Updates per Gist-Polling. So sieht der User exakt das Endergebnis.
-    2. **Lokal**: Streamlit-Static-Pfad (kein Gist nötig).
+    Die Regie-Vorschau verwendet bewusst immer den same-origin Static-Pfad
+    der Streamlit-App. Die externe Browserquelle fuer TikTok Live Studio laeuft
+    ueber GitHub Pages + Gist, aber diese Runde kann in der Regie-Vorschau zu
+    sichtbarem Flackern fuehren, wenn der Gist/CDN kurz einen alten State
+    liefert. In der Regie muss dagegen der frisch geschriebene lokale State
+    sofort und stabil sichtbar sein.
 
     Layout-Änderungen passieren über den Layout-Tab in der Regie
     (Slider/Number-Inputs), nicht mehr per Drag in der Bühne. Die Bühne
     ist reine Anzeige.
     """
     room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
-    is_cloud = _is_streamlit_cloud_runtime()
-
-    if is_cloud:
-        gid = _gist_id()
-        guser = _gist_user()
-        gist_q = f"&gist={guser}/{gid}" if (gid and guser) else (f"&gist={gid}" if gid else "")
-        src = f"{GITHUB_PAGES_BASE}/stage.html?room={room}{gist_q}"
-        if not gid:
-            st.info(
-                "Live-Updates der Vorschau brauchen Gist-Sync (Tab Backup → Gist-Sync). "
-                "Aktuell siehst du den Default-State; Änderungen aus der Regie kommen erst durch, "
-                "sobald ein Gist verbunden ist."
-            )
-    else:
-        src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}"
+    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}"
     iframe_html = (
         '<!doctype html><html><head><meta charset="utf-8"><style>'
         'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'

@@ -1086,8 +1086,11 @@ body.transparent .veil { background: transparent; display: none; }
         const data = await r.json();
         diag.lastFetchOk = true;
         diag.lastFetchError = "";
-        if (!data.updated_at || data.updated_at !== lastUpdated) {
-          lastUpdated = data.updated_at || lastUpdated;
+        const nextUpdated = Number(data.updated_at || 0);
+        if (nextUpdated && lastUpdated && nextUpdated < lastUpdated) {
+          try { console.warn("[ttl-stage] ignoring stale state", nextUpdated, "<", lastUpdated); } catch (_) {}
+        } else if (!nextUpdated || nextUpdated !== lastUpdated) {
+          lastUpdated = nextUpdated || Date.now();
           render(data);
         } else {
           // tick clock anyway

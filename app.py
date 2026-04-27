@@ -82,18 +82,22 @@ AI_MODEL_LABELS = {
     "gemini-2.5-pro": "Gemini 2.5 Pro",
 }
 IMAGE_MODELS = [
+    "auto",
+    "gemini-2.5-flash-image",
+    "gemini-2.5-flash-image-preview",
+    "gemini-2.0-flash-preview-image-generation",
     "imagen-4.0-fast-generate-001",
     "imagen-4.0-generate-001",
     "imagen-3.0-generate-002",
-    "gemini-2.5-flash-image",
-    "gemini-2.0-flash-preview-image-generation",
 ]
 IMAGE_MODEL_LABELS = {
+    "auto": "Auto: Gemini Bildmodell",
+    "gemini-2.5-flash-image": "Gemini 2.5 Flash Image",
+    "gemini-2.5-flash-image-preview": "Gemini 2.5 Flash Image Preview",
+    "gemini-2.0-flash-preview-image-generation": "Gemini 2.0 Flash Image Preview",
     "imagen-4.0-fast-generate-001": "Imagen 4 Fast",
     "imagen-4.0-generate-001": "Imagen 4 Standard",
     "imagen-3.0-generate-002": "Imagen 3",
-    "gemini-2.5-flash-image": "Gemini 2.5 Flash Image",
-    "gemini-2.0-flash-preview-image-generation": "Gemini 2.0 Flash Image Preview",
 }
 MOTION_EFFECTS = ["Aerosol-Wolken", "Lagerfeuer", "Lichtstaub", "Scanlines", "Regen", "Funkeln", "Wellen"]
 MOTION_EFFECT_MAP = {"Nebel": "Aerosol-Wolken"}
@@ -859,7 +863,7 @@ def init_state() -> None:
         "ai_model": "gemini-2.5-flash",
         "ai_max_chars": 1200,
         "image_prompt": "",
-        "image_model": "imagen-4.0-fast-generate-001",
+        "image_model": "auto",
         "image_prompt_use_chat": True,
         "image_generation_error": "",
         "overlay_room_id": "",
@@ -1323,6 +1327,24 @@ def friendly_ai_error(exc: Exception) -> str:
     return f"KI-Anfrage fehlgeschlagen: {raw[:420]}"
 
 
+def friendly_image_error(exc: Exception, model: str = "") -> str:
+    raw = str(exc)
+    low = raw.lower()
+    label = IMAGE_MODEL_LABELS.get(model, model)
+    if "resource_exhausted" in low or "quota" in low or "429" in low:
+        return (
+            f"{label}: Google-Kontingent fuer dieses Bildmodell/API-Projekt erreicht. "
+            "Bitte anderes Bildmodell testen oder Kontingent/Billing in Google AI Studio pruefen."
+        )
+    if "not_found" in low or "404" in low or "is not found" in low:
+        return f"{label}: Dieses Bildmodell ist fuer deinen API-Key oder diese API-Version nicht verfuegbar."
+    if "api key" in low or "permission" in low or "unauth" in low or "forbidden" in low or "403" in low:
+        return f"{label}: API-Key oder Berechtigung fuer Google-Bildgenerierung fehlt."
+    if "safety" in low or "blocked" in low or "policy" in low:
+        return f"{label}: Google hat den Bildprompt aus Safety-Gruenden blockiert. Bitte abstrakter und weniger politisch formulieren."
+    return f"{label}: Bildgenerierung fehlgeschlagen: {raw[:360]}"
+
+
 def render_copyable_url(label: str, url: str, key: str) -> None:
     st.markdown(f"**{label}**")
     st.text_input(label, value=url, key=f"{key}_url", label_visibility="collapsed", disabled=True)
@@ -1404,6 +1426,71 @@ def chat_context_for_prompt() -> str:
     return f"Thema: {topic}. Chat-Schwerpunkte der letzten 5 Minuten: {', '.join(top_words) or 'noch keine Chatdaten'}."
 
 
+def store_generated_background(data: bytes | str, mime_type: str = "image/png", model: str = "") -> str:
+    encoded = data if isinstance(data, str) else base64.b64encode(data).decode("ascii")
+    data_url = f"data:{mime_type or 'image/png'};base64,{encoded}"
+    image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
+    title = f"KI-Bild {time.strftime('%H:%M:%S')}"
+    st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
+    st.session_state.active_image_id = image_id
+    st.session_state.show_background = True
+    st.session_state.bg_brightness = 118
+    st.session_state.bg_dim = 24
+    st.session_state.image_generation_error = ""
+    return f"Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} generiert und aktiviert."
+
+
+def response_parts(response: Any) -> list[Any]:
+    parts = list(getattr(response, "parts", []) or [])
+    for candidate in getattr(response, "candidates", []) or []:
+        content = getattr(candidate, "content", None)
+        parts.extend(getattr(content, "parts", []) or [])
+    return parts
+
+
+def image_from_generate_content_response(response: Any) -> tuple[bytes | str, str] | None:
+    for part in response_parts(response):
+        inline_data = getattr(part, "inline_data", None) or getattr(part, "inlineData", None)
+        if inline_data is not None:
+            data = getattr(inline_data, "data", b"")
+            mime_type = getattr(inline_data, "mime_type", None) or getattr(inline_data, "mimeType", None) or "image/png"
+            if data:
+                return data, mime_type
+        as_image = getattr(part, "as_image", None)
+        if callable(as_image):
+            try:
+                image = as_image()
+                buffer = BytesIO()
+                image.save(buffer, format="PNG")
+                return buffer.getvalue(), "image/png"
+            except Exception:
+                pass
+    return None
+
+
+def image_generation_models_to_try(selected: str) -> list[str]:
+    selected = selected if selected in IMAGE_MODELS else "auto"
+    if selected == "auto":
+        return [
+            "gemini-2.5-flash-image",
+            "gemini-2.5-flash-image-preview",
+            "gemini-2.0-flash-preview-image-generation",
+        ]
+    fallback = {
+        "gemini-2.5-flash-image": ["gemini-2.5-flash-image-preview", "gemini-2.0-flash-preview-image-generation"],
+        "gemini-2.5-flash-image-preview": ["gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"],
+        "gemini-2.0-flash-preview-image-generation": ["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview"],
+        "imagen-4.0-fast-generate-001": ["imagen-3.0-generate-002"],
+        "imagen-4.0-generate-001": ["imagen-4.0-fast-generate-001", "imagen-3.0-generate-002"],
+        "imagen-3.0-generate-002": ["gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"],
+    }
+    result = [selected]
+    for model in fallback.get(selected, []):
+        if model not in result:
+            result.append(model)
+    return result
+
+
 def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool, str]:
     prompt = (prompt or "").strip()
     if use_chat:
@@ -1415,68 +1502,52 @@ def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool,
     api_key = google_api_key()
     if not api_key:
         return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY in Streamlit Secrets gefunden."
-    model = st.session_state.get("image_model", "gemini-2.5-flash-image")
-    if model not in IMAGE_MODELS:
-        model = "imagen-4.0-fast-generate-001"
+    selected_model = st.session_state.get("image_model", "auto")
+    if selected_model not in IMAGE_MODELS:
+        selected_model = "auto"
     visual_prompt = (
         "Create a high-quality vertical 9:16 abstract livestream overlay background. "
         "No text, no logos, no readable words, no people. Leave calm negative space on the right and bottom. "
         "Professional, subtle, readable behind typography. "
         f"Prompt: {prompt}"
     )
+    errors: list[str] = []
     try:
         client = genai.Client(api_key=api_key)
-        if model.startswith("imagen-"):
-            config = None
-            if genai_types is not None:
-                config = genai_types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio="9:16",
-                    person_generation="dont_allow",
-                )
-            response = client.models.generate_images(model=model, prompt=visual_prompt, config=config)
-            for generated in getattr(response, "generated_images", []) or []:
-                image_obj = getattr(generated, "image", None)
-                data = getattr(image_obj, "image_bytes", None) or getattr(image_obj, "imageBytes", None)
-                if data:
-                    encoded = data if isinstance(data, str) else base64.b64encode(data).decode("ascii")
-                    data_url = f"data:image/png;base64,{encoded}"
-                    image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
-                    title = f"KI-Bild {time.strftime('%H:%M:%S')}"
-                    st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
-                    st.session_state.active_image_id = image_id
-                    st.session_state.show_background = True
-                    st.session_state.bg_brightness = 118
-                    st.session_state.bg_dim = 24
-                    st.session_state.image_generation_error = ""
-                    return True, f"Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} generiert und aktiviert."
-        else:
-            kwargs: dict[str, Any] = {"model": model, "contents": [visual_prompt]}
-            if model == "gemini-2.0-flash-preview-image-generation" and genai_types is not None:
-                kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
-            response = client.models.generate_content(**kwargs)
-            parts = getattr(response, "parts", None)
-            if parts is None and getattr(response, "candidates", None):
-                parts = response.candidates[0].content.parts
-            for part in parts or []:
-                inline_data = getattr(part, "inline_data", None)
-                if inline_data is not None:
-                    data = getattr(inline_data, "data", b"")
-                    mime_type = getattr(inline_data, "mime_type", "image/png") or "image/png"
-                    encoded = data if isinstance(data, str) else base64.b64encode(data).decode("ascii")
-                    data_url = f"data:{mime_type};base64,{encoded}"
-                    image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
-                    title = f"KI-Bild {time.strftime('%H:%M:%S')}"
-                    st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
-                    st.session_state.active_image_id = image_id
-                    st.session_state.show_background = True
-                    st.session_state.bg_brightness = 118
-                    st.session_state.bg_dim = 24
-                    st.session_state.image_generation_error = ""
-                    return True, f"Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} generiert und aktiviert."
-        return False, "Google hat kein Bild zurückgegeben. Bitte Prompt oder Modell wechseln."
+        for model in image_generation_models_to_try(selected_model):
+            try:
+                if model.startswith("imagen-"):
+                    config = None
+                    if genai_types is not None:
+                        config = genai_types.GenerateImagesConfig(
+                            number_of_images=1,
+                            aspect_ratio="9:16",
+                            person_generation="dont_allow",
+                        )
+                    response = client.models.generate_images(model=model, prompt=visual_prompt, config=config)
+                    for generated in getattr(response, "generated_images", []) or []:
+                        image_obj = getattr(generated, "image", None)
+                        data = getattr(image_obj, "image_bytes", None) or getattr(image_obj, "imageBytes", None)
+                        if data:
+                            return True, store_generated_background(data, "image/png", model)
+                    errors.append(f"{IMAGE_MODEL_LABELS.get(model, model)}: Google hat kein Bild zurueckgegeben.")
+                    continue
+
+                kwargs: dict[str, Any] = {"model": model, "contents": [visual_prompt]}
+                if model == "gemini-2.0-flash-preview-image-generation" and genai_types is not None:
+                    kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
+                response = client.models.generate_content(**kwargs)
+                image_result = image_from_generate_content_response(response)
+                if image_result:
+                    data, mime_type = image_result
+                    return True, store_generated_background(data, mime_type, model)
+                errors.append(f"{IMAGE_MODEL_LABELS.get(model, model)}: Google hat nur Text oder kein Bild zurueckgegeben.")
+            except Exception as model_exc:
+                errors.append(friendly_image_error(model_exc, model))
+                continue
+        return False, "Kein Bildmodell war erfolgreich. " + " | ".join(errors[:4])
     except Exception as exc:
-        return False, friendly_ai_error(exc)
+        return False, friendly_image_error(exc, selected_model)
 
 
 def chat_sentiment_state() -> dict[str, Any]:
@@ -2513,7 +2584,7 @@ def render_image_panel() -> None:
     if st.session_state.get("image_model") not in IMAGE_MODELS:
         st.session_state.image_model = "imagen-4.0-fast-generate-001"
     st.selectbox("Bildmodell", IMAGE_MODELS, key="image_model", format_func=lambda value: IMAGE_MODEL_LABELS.get(value, value))
-    st.caption("Imagen-Modelle nutzen `generate_images` und sind laut Google teils Paid-Tier-abhaengig. Falls eins nicht verfuegbar ist, anderes Modell testen.")
+    st.caption("Auto nutzt zuerst Gemini-Bildmodelle via `generate_content`. Imagen nutzt `generate_images` und kann Paid-Tier erfordern.")
     if st.button("KI-Hintergrund erstellen", key="image_generate_ai", use_container_width=True):
         ok, message = generate_background_image(st.session_state.image_prompt, st.session_state.image_prompt_use_chat)
         if ok:

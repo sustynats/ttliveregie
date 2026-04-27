@@ -3263,8 +3263,14 @@ def render_image_panel() -> None:
                 if st.session_state.active_stage_image_id == item["id"]:
                     st.session_state.active_stage_image_id = None
                     st.session_state.show_stage_image = False
-    st.toggle("Buehnenbild anzeigen", key="show_stage_image", disabled=not bool(st.session_state.active_stage_image_id))
-    csi1, csi2 = st.columns(2)
+    csi0, csi1, csi2 = st.columns(3)
+    if csi0.button(
+        "Buehnenbild ausblenden" if st.session_state.show_stage_image else "Buehnenbild zeigen",
+        key="stage_img_toggle_visibility",
+        use_container_width=True,
+        disabled=not bool(st.session_state.active_stage_image_id),
+    ):
+        st.session_state.show_stage_image = not st.session_state.show_stage_image
     if csi1.button("Buehnenbild zentrieren", key="stage_img_center", use_container_width=True):
         st.session_state.stage_image_x = 50
         st.session_state.stage_image_y = 52

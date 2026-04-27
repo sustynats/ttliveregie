@@ -68,7 +68,7 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
-DEFAULTS_VERSION = 9
+DEFAULTS_VERSION = 10
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -782,6 +782,47 @@ def mark_typography_adjusted() -> None:
     st.session_state.user_adjusted_typography = True
 
 
+def mark_image_look_adjusted() -> None:
+    st.session_state.user_adjusted_image_look = True
+
+
+def layout_typography(layout: str | None = None) -> dict[str, Any]:
+    font = layout_font(layout)
+    if font == "Bebas Neue":
+        return {"topic_weight": 400, "topic_spacing": 1, "topic_size": 102, "keyword_weight": 400}
+    if font in {"Playfair Display", "Georgia", "Merriweather"}:
+        return {"topic_weight": 850, "topic_spacing": 0, "topic_size": 92, "keyword_weight": 760}
+    if font == "Montserrat":
+        return {"topic_weight": 850, "topic_spacing": 0, "topic_size": 88, "keyword_weight": 780}
+    return {"topic_weight": 850, "topic_spacing": 0, "topic_size": 90, "keyword_weight": 760}
+
+
+def apply_layout_typography(layout: str | None = None) -> None:
+    font = layout_font(layout)
+    typo = layout_typography(layout)
+    st.session_state.topic_font_family = font
+    st.session_state.highlight_font_family = font
+    st.session_state.topic_font_weight = typo["topic_weight"]
+    st.session_state.topic_letter_spacing = typo["topic_spacing"]
+    st.session_state.topic_text_size = typo["topic_size"]
+    st.session_state.topic_text_transform = "normal"
+    st.session_state.keyword_font_family = "Inter"
+    st.session_state.keyword_font_weight = typo["keyword_weight"]
+    st.session_state.highlight_font_weight = max(700, int(typo["topic_weight"]))
+    st.session_state.highlight_letter_spacing = 0
+    st.session_state.countdown_font_family = "Inter"
+    st.session_state.countdown_font_weight = 850
+    st.session_state.user_adjusted_typography = False
+
+
+def stabilize_image_look_for_layout_switch() -> None:
+    st.session_state.bg_dim = min(int(st.session_state.get("bg_dim", 12) or 12), 18)
+    st.session_state.bg_blur = min(int(st.session_state.get("bg_blur", 0) or 0), 4)
+    st.session_state.bg_brightness = max(int(st.session_state.get("bg_brightness", 125) or 125), 125)
+    st.session_state.bg_opacity = max(int(st.session_state.get("bg_opacity", 100) or 100), 100)
+    st.session_state.overlay_opacity = max(int(st.session_state.get("overlay_opacity", 100) or 100), 100)
+
+
 # ---------------------------------------------------------------------------
 # State Management
 # ---------------------------------------------------------------------------
@@ -963,8 +1004,7 @@ def init_state() -> None:
     if st.session_state.layout in LEGACY_LAYOUT_MAP:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
     if not st.session_state.get("user_adjusted_typography", False):
-        st.session_state.topic_font_family = layout_font(st.session_state.layout)
-        st.session_state.highlight_font_family = layout_font(st.session_state.layout)
+        apply_layout_typography(st.session_state.layout)
     else:
         if st.session_state.get("topic_font_family") not in FONT_PRESETS:
             st.session_state.topic_font_family = layout_font(st.session_state.layout)
@@ -1072,10 +1112,7 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.cloud_pos_y = 55
     st.session_state.cloud_width = min(int(st.session_state.get("cloud_width", 60) or 60), 64)
     st.session_state.cloud_height = min(int(st.session_state.get("cloud_height", 58) or 58), 60)
-    st.session_state.topic_font_family = "Poppins"
-    st.session_state.keyword_font_family = "Inter"
-    st.session_state.highlight_font_family = "Poppins"
-    st.session_state.user_adjusted_typography = False
+    apply_layout_typography("Neon Pop")
     st.session_state.motion_effects = ["Aerosol-Wolken"]
     st.session_state.show_motion_layers = True
     st.session_state.motion_opacity = max(45, int(st.session_state.get("motion_opacity", 45) or 45))
@@ -1250,8 +1287,7 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
     if int(payload.get("defaults_version", 0) or 0) < DEFAULTS_VERSION:
         apply_visual_defaults_v3()
     elif not st.session_state.get("user_adjusted_typography", False):
-        st.session_state.topic_font_family = layout_font(st.session_state.layout)
-        st.session_state.highlight_font_family = layout_font(st.session_state.layout)
+        apply_layout_typography(st.session_state.layout)
     else:
         if st.session_state.get("topic_font_family") not in FONT_PRESETS:
             st.session_state.topic_font_family = layout_font(st.session_state.layout)
@@ -1295,10 +1331,7 @@ def reset_stage_to_safe_defaults() -> None:
     st.session_state.clear_overlay = False
     st.session_state.minimal_mode = False
     st.session_state.focus_mode = False
-    st.session_state.topic_font_family = "Poppins"
-    st.session_state.keyword_font_family = "Inter"
-    st.session_state.highlight_font_family = "Poppins"
-    st.session_state.user_adjusted_typography = False
+    apply_layout_typography("Neon Pop")
     st.session_state.topic_font_weight = 850
     st.session_state.keyword_font_weight = 760
     st.session_state.topic_letter_spacing = 0
@@ -2562,10 +2595,20 @@ def current_overlay_state() -> dict[str, Any]:
         layout = "Editorial Dark"
     theme = THEMES[layout]
     preset_font = layout_font(layout)
+    preset_typo = layout_typography(layout)
     if not st.session_state.get("user_adjusted_typography", False):
         state["topic_font_family"] = preset_font
         state["highlight_font_family"] = preset_font
-        state["keyword_font_family"] = state.get("keyword_font_family") if state.get("keyword_font_family") in FONT_PRESETS else "Inter"
+        state["keyword_font_family"] = "Inter"
+        state["topic_font_weight"] = preset_typo["topic_weight"]
+        state["topic_letter_spacing"] = preset_typo["topic_spacing"]
+        state["topic_text_size"] = preset_typo["topic_size"]
+        state["topic_text_transform"] = "normal"
+        state["keyword_font_weight"] = preset_typo["keyword_weight"]
+        state["highlight_font_weight"] = max(700, int(preset_typo["topic_weight"]))
+        state["highlight_letter_spacing"] = 0
+        state["countdown_font_family"] = "Inter"
+        state["countdown_font_weight"] = 850
     else:
         state["topic_font_family"] = state.get("topic_font_family") if state.get("topic_font_family") in FONT_PRESETS else preset_font
         state["highlight_font_family"] = (
@@ -2740,11 +2783,15 @@ def _push_state_to_gist_now(serialized_state: str, token: str, gist_id: str) -> 
             if e.code == 409 and attempt == 0:
                 time.sleep(0.3 + random.random() * 0.5)
                 continue
+            hint = ""
+            if e.code == 403:
+                hint = " - Token/Gist pruefen: Classic PAT braucht Scope gist und muss zum Gist-Owner passen."
             st.session_state["gist_status"] = {
                 "ok": False,
-                "msg": f"HTTP {e.code}: {e.reason}",
+                "msg": f"HTTP {e.code}: {e.reason}{hint}",
                 "at": time.time(),
             }
+            st.session_state.pop("gist_pending", None)
             return
         except Exception as e:
             last_error = e
@@ -3128,9 +3175,8 @@ def render_layout_panel() -> None:
         )
         if st.button(f"{active}{name}", key=f"layout_{theme['key']}", use_container_width=True):
             st.session_state.layout = name
-            st.session_state.topic_font_family = theme.get("font", st.session_state.topic_font_family)
-            st.session_state.highlight_font_family = theme.get("font", st.session_state.highlight_font_family)
-            st.session_state.user_adjusted_typography = False
+            apply_layout_typography(name)
+            stabilize_image_look_for_layout_switch()
             if not st.session_state.cloud_style_locked:
                 st.session_state.cloud_style = theme.get("cloud_style", st.session_state.cloud_style)
                 if not st.session_state.user_adjusted_cloud_position:
@@ -3210,15 +3256,26 @@ def render_image_panel() -> None:
     c3.button("Look optimieren", key="image_auto_optimize", use_container_width=True, on_click=optimize_image_look)
     if st.button("Bühne aufhellen", key="image_brighten_stage", use_container_width=True):
         brighten_stage()
-    st.selectbox("Bild-Fit", ["cover", "contain"], key="bg_fit")
-    st.slider("Helligkeit", 20, 140, key="bg_brightness")
-    st.session_state.bg_blur = st.slider("Bild-Blur", 0, 18, value=st.session_state.bg_blur, key="image_bg_blur")
-    st.session_state.bg_dim = st.slider("Overlay-Dunkelung Bild", 0, 90, value=st.session_state.bg_dim, key="image_bg_dim")
-    st.session_state.bg_opacity = st.slider("Bild-Transparenz", 0, 100, value=st.session_state.bg_opacity, key="image_bg_opacity")
-    st.session_state.bg_zoom = st.slider("Bild-Zoom", 80, 150, value=st.session_state.bg_zoom, key="image_bg_zoom")
-    st.session_state.bg_pos_x = st.slider("Bild-Position X", 0, 100, value=st.session_state.bg_pos_x, key="image_bg_pos_x")
-    st.session_state.bg_pos_y = st.slider("Bild-Position Y", 0, 100, value=st.session_state.bg_pos_y, key="image_bg_pos_y")
-    st.session_state.user_adjusted_image_look = True
+    st.selectbox("Bild-Fit", ["cover", "contain"], key="bg_fit", on_change=mark_image_look_adjusted)
+    st.slider("Helligkeit", 20, 140, key="bg_brightness", on_change=mark_image_look_adjusted)
+    st.session_state.bg_blur = st.slider(
+        "Bild-Blur", 0, 18, value=st.session_state.bg_blur, key="image_bg_blur", on_change=mark_image_look_adjusted
+    )
+    st.session_state.bg_dim = st.slider(
+        "Overlay-Dunkelung Bild", 0, 90, value=st.session_state.bg_dim, key="image_bg_dim", on_change=mark_image_look_adjusted
+    )
+    st.session_state.bg_opacity = st.slider(
+        "Bild-Transparenz", 0, 100, value=st.session_state.bg_opacity, key="image_bg_opacity", on_change=mark_image_look_adjusted
+    )
+    st.session_state.bg_zoom = st.slider(
+        "Bild-Zoom", 80, 150, value=st.session_state.bg_zoom, key="image_bg_zoom", on_change=mark_image_look_adjusted
+    )
+    st.session_state.bg_pos_x = st.slider(
+        "Bild-Position X", 0, 100, value=st.session_state.bg_pos_x, key="image_bg_pos_x", on_change=mark_image_look_adjusted
+    )
+    st.session_state.bg_pos_y = st.slider(
+        "Bild-Position Y", 0, 100, value=st.session_state.bg_pos_y, key="image_bg_pos_y", on_change=mark_image_look_adjusted
+    )
 
     st.divider()
     section("Buehnenbilder")
@@ -3747,7 +3804,8 @@ def primary_browser_source_url() -> str:
     Room-ID und (sofern konfiguriert) der Gist-ID für State-Sync. Public, kein Auth.
     """
     room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
-    return github_pages_stage_url(room, gist_id=_gist_id() or None, gist_user=_gist_user() or None)
+    gid = _gist_id() or None
+    return github_pages_stage_url(room, gist_id=gid, gist_user=(_gist_user() if gid else None))
 
 
 def render_primary_browser_source(prefix: str = "stage_topbar") -> None:
@@ -3764,6 +3822,11 @@ def render_primary_browser_source(prefix: str = "stage_topbar") -> None:
         status = st.session_state.get("gist_status") or {}
         if status.get("ok"):
             st.caption(f"Gist-Sync aktiv — letzter Push: {status.get('msg','')}.")
+        elif "HTTP 403" in str(status.get("msg", "")):
+            st.error(
+                "Gist-Sync bekommt HTTP 403. Der Token darf diesen Gist nicht schreiben. "
+                "Bitte im Backup-Tab einen Classic GitHub-Token mit Scope `gist` nutzen oder einen neuen Gist anlegen."
+            )
         elif status.get("msg"):
             st.caption(f"Gist-Sync konfiguriert, letzter Status: {status.get('msg')}.")
         else:
@@ -3816,7 +3879,7 @@ def render_persistence_panel() -> None:
     with st.expander("Erweiterte URLs (Debug, Test, Lokal, Transparent)", expanded=False):
         room = st.session_state.overlay_room_id
         gist_id = _gist_id() or None
-        gist_user = _gist_user() or None
+        gist_user = (_gist_user() or None) if gist_id else None
         gh_main = github_pages_stage_url(room, gist_id=gist_id, gist_user=gist_user)
         gh_debug = github_pages_stage_url(room, gist_id=gist_id, gist_user=gist_user, debug="1")
         gh_transparent = github_pages_stage_url(room, gist_id=gist_id, gist_user=gist_user, bg="transparent")

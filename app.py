@@ -1291,7 +1291,7 @@ def brighten_stage() -> None:
     st.session_state.bg_opacity = 100
     st.session_state.overlay_opacity = 100
     st.session_state.clear_overlay = False
-    st.session_state.show_background = True
+    set_background_visible(True)
     st.session_state.user_adjusted_image_look = True
 
 
@@ -1447,7 +1447,7 @@ def store_generated_background(data: bytes | str, mime_type: str = "image/png", 
     title = f"KI-Bild {time.strftime('%H:%M:%S')}"
     st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
     st.session_state.active_image_id = image_id
-    st.session_state.show_background = True
+    set_background_visible(True)
     st.session_state.bg_brightness = 118
     st.session_state.bg_dim = 24
     st.session_state.image_generation_error = ""
@@ -2631,6 +2631,7 @@ def render_connection_panel() -> None:
 
 def render_toggle_panel() -> None:
     section("Sichtbarkeit")
+    st.session_state.background_visible_control = bool(st.session_state.get("show_background", True))
     toggles = [
         ("show_topic", "Thema anzeigen"),
         ("show_cloud", "Keyword-Cloud anzeigen"),
@@ -2638,7 +2639,6 @@ def render_toggle_panel() -> None:
         ("show_countdown", "Countdown anzeigen"),
         ("show_clock", "Live-Uhr anzeigen"),
         ("show_live_since", "Live seit Uhrzeit anzeigen"),
-        ("show_background", "Hintergrundbild anzeigen"),
         ("show_animations", "Animationen anzeigen"),
         ("show_motion_layers", "Bewegung anzeigen"),
         ("show_heatmap", "Heatmap anzeigen"),
@@ -2648,6 +2648,7 @@ def render_toggle_panel() -> None:
     ]
     for key, label in toggles:
         st.toggle(label, key=key)
+    st.toggle("Hintergrundbild anzeigen", key="background_visible_control", on_change=sync_background_visibility)
 
 
 def render_topic_panel() -> None:
@@ -2783,9 +2784,13 @@ def render_image_panel() -> None:
             cols[0].image(item["data_url"], use_container_width=True)
             new_title = cols[0].text_input("Titel", value=item.get("title", item.get("name", "Bild")), key=f"img_title_{item['id']}", label_visibility="collapsed")
             item["title"] = new_title
-            if cols[1].button(("Aktiv" if item["id"] == st.session_state.active_image_id else "Aktivieren"), key=f"img_on_{item['id']}", use_container_width=True):
-                st.session_state.active_image_id = item["id"]
-                st.session_state.show_background = True
+            cols[1].button(
+                ("Aktiv" if item["id"] == st.session_state.active_image_id else "Aktivieren"),
+                key=f"img_on_{item['id']}",
+                use_container_width=True,
+                on_click=activate_image,
+                args=(item["id"],),
+            )
             if cols[2].button("Löschen", key=f"img_del_{item['id']}", use_container_width=True):
                 st.session_state.images = [img for img in st.session_state.images if img["id"] != item["id"]]
                 if st.session_state.active_image_id == item["id"]:
@@ -2793,18 +2798,10 @@ def render_image_panel() -> None:
     st.caption("Ausblenden behaelt das aktive Bild in der Galerie. Abwaehlen entfernt nur die aktive Auswahl. Loeschen entfernt ein Bild aus der Session-Galerie.")
     c1, c2, c3 = st.columns(3)
     hide_label = "Bild einblenden" if not st.session_state.show_background else "Bild ausblenden"
-    if c1.button(hide_label, key="image_toggle_visibility", use_container_width=True):
-        st.session_state.show_background = not st.session_state.show_background
+    c1.button(hide_label, key="image_toggle_visibility", use_container_width=True, on_click=toggle_background_visibility)
     if c2.button("Aktives Bild abwählen", key="image_remove", use_container_width=True):
         st.session_state.active_image_id = None
-    if c3.button("Look optimieren", key="image_auto_optimize", use_container_width=True):
-        st.session_state.bg_dim = 34
-        st.session_state.bg_blur = 2
-        st.session_state.bg_brightness = 112
-        st.session_state.bg_opacity = 96
-        st.session_state.user_adjusted_image_look = True
-        st.session_state.cloud_width = 62
-        st.session_state.show_background = True
+    c3.button("Look optimieren", key="image_auto_optimize", use_container_width=True, on_click=optimize_image_look)
     if st.button("Bühne aufhellen", key="image_brighten_stage", use_container_width=True):
         brighten_stage()
     st.selectbox("Bild-Fit", ["cover", "contain"], key="bg_fit")
@@ -2959,6 +2956,34 @@ def clear_pdf_state() -> None:
 
 def sync_pdf_visibility() -> None:
     st.session_state.show_pdf = bool(st.session_state.get("pdf_visible_control", False))
+
+
+def sync_background_visibility() -> None:
+    st.session_state.show_background = bool(st.session_state.get("background_visible_control", True))
+
+
+def set_background_visible(value: bool) -> None:
+    st.session_state.show_background = bool(value)
+    st.session_state.background_visible_control = bool(value)
+
+
+def activate_image(image_id: str) -> None:
+    st.session_state.active_image_id = image_id
+    set_background_visible(True)
+
+
+def toggle_background_visibility() -> None:
+    set_background_visible(not st.session_state.get("show_background", True))
+
+
+def optimize_image_look() -> None:
+    st.session_state.bg_dim = 34
+    st.session_state.bg_blur = 2
+    st.session_state.bg_brightness = 112
+    st.session_state.bg_opacity = 96
+    st.session_state.user_adjusted_image_look = True
+    st.session_state.cloud_width = 62
+    set_background_visible(True)
 
 
 def render_media_panel() -> None:

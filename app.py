@@ -1599,9 +1599,16 @@ def chat_context_for_prompt() -> str:
 def store_generated_background(data: bytes | str, mime_type: str = "image/png", model: str = "") -> str:
     encoded = data if isinstance(data, str) else base64.b64encode(data).decode("ascii")
     data_url = f"data:{mime_type or 'image/png'};base64,{encoded}"
-    content_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
-    image_id = f"ai_{int(time.time() * 1000)}_{content_id}"
+    image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
     title = f"KI-Bild {time.strftime('%H:%M:%S')}"
+    for item in st.session_state.images:
+        if item.get("id") == image_id or item.get("data_url") == data_url:
+            st.session_state.active_image_id = item.get("id", image_id)
+            set_background_visible(True)
+            st.session_state.bg_brightness = 118
+            st.session_state.bg_dim = 24
+            st.session_state.image_generation_error = ""
+            return f"Vorhandenes Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} wieder aktiviert."
     st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
     st.session_state.active_image_id = image_id
     set_background_visible(True)
@@ -1619,6 +1626,7 @@ def normalize_image_library() -> None:
         return
     normalized: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
+    seen_data: set[str] = set()
     active_id = st.session_state.get("active_image_id")
     active_data = ""
     for item in images:
@@ -1629,13 +1637,14 @@ def normalize_image_library() -> None:
         if not isinstance(item, dict):
             continue
         data_url = str(item.get("data_url", "") or "")
-        if not data_url:
+        if not data_url or data_url in seen_data:
             continue
         raw_id = str(item.get("id", "") or hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12])
         image_id = re.sub(r"[^a-zA-Z0-9_-]", "", raw_id)[:48] or hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
         if image_id in seen_ids:
             image_id = f"{hashlib.sha1((data_url + str(index)).encode('utf-8')).hexdigest()[:12]}_{index}"
         seen_ids.add(image_id)
+        seen_data.add(data_url)
         item = dict(item)
         item["id"] = image_id
         item.setdefault("name", item.get("title", "Bild"))
@@ -2716,43 +2725,12 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         const stage = document.querySelector(".stage");
         if (!stage) return;
         function pct(value, total) {{ return Math.max(0, Math.min(100, value / Math.max(1, total) * 100)); }}
-        const targetMap = {{
-          topic: {{ selector: ".topic", x: "--tx", y: "--ty", w: "--tw", h: "--th" }},
-          highlight: {{ selector: ".highlight", x: "--hx", y: "--hy", w: "--hw", h: "--hh" }},
-          cloud: {{ selector: ".cloud", x: "--cloudX", y: "--cloudY", w: "--cloudW", h: "--cloudH", root: true }},
-          countdown: {{ selector: ".countdown", x: "--cx", y: "--cy", w: "--cw", h: "--ch" }},
-          clock: {{ selector: ".live-clock", x: "--lx", y: "--ly", w: "--lw", h: "--lh" }},
-          video: {{ selector: ".stage-video", x: "--vx", y: "--vy", w: "--vw", h: "--vh", extra: ".video-controls" }},
-          website: {{ selector: ".stage-web, .stage-web-card", x: "--wx", y: "--wy", w: "--ww", h: "--wh" }},
-          pdf: {{ selector: ".stage-pdf", x: "--px", y: "--py", w: "--pw", h: "--ph" }},
-          ai: {{ selector: ".ai-card", x: "--ax", y: "--ay", w: "--aw", h: "--ah" }}
-        }};
-        function applyToTarget(target, x, y, w, h) {{
-          const config = targetMap[target];
-          if (!config) return;
-          const nodes = Array.from(document.querySelectorAll(config.selector));
-          if (config.extra) nodes.push(...document.querySelectorAll(config.extra));
-          const setter = config.root ? document.documentElement : null;
-          if (setter) {{
-            setter.style.setProperty(config.x, x.toFixed(1) + "%");
-            setter.style.setProperty(config.y, y.toFixed(1) + "%");
-            setter.style.setProperty(config.w, w.toFixed(1) + "%");
-            setter.style.setProperty(config.h, h.toFixed(1) + "%");
-          }}
-          nodes.forEach((node) => {{
-            node.style.setProperty(config.x, x.toFixed(1) + "%");
-            node.style.setProperty(config.y, y.toFixed(1) + "%");
-            node.style.setProperty(config.w, w.toFixed(1) + "%");
-            node.style.setProperty(config.h, h.toFixed(1) + "%");
-          }});
-        }}
         function commit(target, rect) {{
           const stageRect = stage.getBoundingClientRect();
           const x = pct(rect.left + rect.width / 2 - stageRect.left, stageRect.width);
           const y = pct(rect.top + rect.height / 2 - stageRect.top, stageRect.height);
           const w = pct(rect.width, stageRect.width);
           const h = pct(rect.height, stageRect.height);
-          applyToTarget(target, x, y, w, h);
           const url = new URL(window.parent.location.href);
           url.searchParams.set("stage_edit_target", target);
           url.searchParams.set("stage_edit_x", x.toFixed(1));
@@ -2799,13 +2777,6 @@ def render_overlay_html(state: dict[str, Any]) -> str:
             box.style.top = `${{pct(top + height / 2, start.stageRect.height)}}%`;
             box.style.width = `${{pct(width, start.stageRect.width)}}%`;
             box.style.height = `${{pct(height, start.stageRect.height)}}%`;
-            applyToTarget(
-              box.dataset.target,
-              pct(left + width / 2, start.stageRect.width),
-              pct(top + height / 2, start.stageRect.height),
-              pct(width, start.stageRect.width),
-              pct(height, start.stageRect.height)
-            );
           }});
           box.addEventListener("pointerup", (event) => {{
             if (!start || event.pointerId !== start.pointerId) return;

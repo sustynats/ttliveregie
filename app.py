@@ -11,6 +11,7 @@ import re
 import threading
 import time
 import uuid
+from io import BytesIO
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,6 +77,16 @@ AI_MODEL_LABELS = {
     "gemini-2.0-flash": "Gemini 2.0 Flash",
     "gemini-2.0-flash-lite": "Gemini 2.0 Flash Lite",
     "gemini-2.5-pro": "Gemini 2.5 Pro",
+}
+IMAGE_MODELS = ["gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"]
+MOTION_EFFECTS = ["Nebel", "Lagerfeuer", "Lichtstaub", "Scanlines", "Regen", "Funkeln", "Wellen"]
+POSITIVE_WORDS = {
+    "gut", "super", "liebe", "stark", "danke", "yes", "ja", "richtig", "wichtig", "hoffnung", "freude",
+    "cool", "top", "fair", "solidaritaet", "solidarisch", "mut", "klar", "respekt",
+}
+NEGATIVE_WORDS = {
+    "angst", "schlecht", "wut", "hass", "nein", "falsch", "krass", "problem", "lüge", "luege", "sorge",
+    "traurig", "schlimm", "gefährlich", "gefaehrlich", "eskalation", "chaos", "weg", "nervt",
 }
 LEGACY_AI_MODEL_MAP = {
     "gemini-1.5-flash": "gemini-2.5-flash",
@@ -683,6 +694,11 @@ def init_state() -> None:
         "keyword_size": 100,
         "keyword_density": 80,
         "animation_intensity": 55,
+        "motion_effects": ["Nebel"],
+        "motion_opacity": 22,
+        "motion_speed": 55,
+        "show_heatmap": False,
+        "heatmap_opacity": 28,
         "cloud_pos_x": 50,
         "cloud_pos_y": 50,
         "cloud_width": 68,
@@ -739,6 +755,10 @@ def init_state() -> None:
         "ai_error": "",
         "ai_model": "gemini-2.5-flash",
         "ai_max_chars": 1200,
+        "image_prompt": "",
+        "image_model": "gemini-2.5-flash-image",
+        "image_prompt_use_chat": True,
+        "image_generation_error": "",
         "overlay_room_id": "",
         "chat_window": deque(maxlen=5000),
         "keywords": [],
@@ -816,6 +836,7 @@ def snapshot_scene() -> dict[str, Any]:
         "manual_words_emphasis", "countdown_title", "countdown_total",
         "countdown_remaining", "countdown_running", "bg_dim", "bg_blur", "bg_brightness", "bg_opacity", "bg_zoom",
         "bg_pos_x", "bg_pos_y", "bg_fit", "keyword_size", "keyword_density", "animation_intensity",
+        "motion_effects", "motion_opacity", "motion_speed", "show_heatmap", "heatmap_opacity",
         "cloud_pos_x", "cloud_pos_y", "cloud_width", "cloud_height", "cloud_tilt", "topic_text_size",
         "highlight_text_size", "countdown_text_size", "clock_text_size", "topic_font_family", "topic_font_weight",
         "topic_letter_spacing", "topic_text_transform", "keyword_font_family", "keyword_font_weight",
@@ -826,7 +847,7 @@ def snapshot_scene() -> dict[str, Any]:
         "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode",
         "website_preview_title", "website_preview_text", "website_preview_error", "website_x", "website_y",
         "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_error", "ai_model", "overlay_room_id",
-        "ai_max_chars",
+        "ai_max_chars", "image_prompt", "image_model", "image_prompt_use_chat", "image_generation_error",
     ]
     return {key: st.session_state.get(key) for key in keys}
 
@@ -1103,6 +1124,14 @@ def is_ai_error_text(text: str) -> bool:
     return any(marker.lower() in (text or "").lower() for marker in markers)
 
 
+def clamp_text(text: str, max_chars: int) -> str:
+    max_chars = int(max(300, min(3000, max_chars or 1200)))
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 4].rstrip() + " ..."
+
+
 def friendly_ai_error(exc: Exception) -> str:
     raw = str(exc)
     low = raw.lower()
@@ -1147,12 +1176,92 @@ def run_ai_summary(prompt: str) -> tuple[bool, str]:
             kwargs["config"] = genai_types.GenerateContentConfig(max_output_tokens=token_budget, temperature=0.25)
         response = client.models.generate_content(**kwargs)
         text = getattr(response, "text", "") or ""
-        text = text.strip()
-        if len(text) > max_chars:
-            text = text[: max_chars - 4].rstrip() + " ..."
+        text = clamp_text(text, max_chars)
         return True, text or "Keine Antwort erhalten."
     except Exception as exc:
         return False, friendly_ai_error(exc)
+
+
+def recent_chat_words(limit_messages: int = 120) -> list[str]:
+    cutoff = time.time() - 5 * 60
+    words: list[str] = []
+    for msg in list(st.session_state.chat_window)[-limit_messages:]:
+        if msg.ts >= cutoff:
+            words.extend(word for word in extract_words(msg.text) if is_safe_keyword(word))
+    return words
+
+
+def chat_context_for_prompt() -> str:
+    top_words = [word for word, _ in Counter(recent_chat_words()).most_common(18)]
+    if st.session_state.keywords:
+        top_words = [item["word"] for item in st.session_state.keywords[:18]] or top_words
+    topic = st.session_state.get("topic", "")
+    return f"Thema: {topic}. Chat-Schwerpunkte der letzten 5 Minuten: {', '.join(top_words) or 'noch keine Chatdaten'}."
+
+
+def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool, str]:
+    prompt = (prompt or "").strip()
+    if use_chat:
+        prompt = f"{prompt}\n\nLive-chat context: {chat_context_for_prompt()}".strip()
+    if not prompt:
+        return False, "Bitte einen Bildprompt eingeben oder Chatdaten sammeln."
+    if genai is None:
+        return False, "Google GenAI Paket fehlt. Bitte requirements.txt deployen/installieren."
+    api_key = google_api_key()
+    if not api_key:
+        return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY in Streamlit Secrets gefunden."
+    model = st.session_state.get("image_model", "gemini-2.5-flash-image")
+    if model not in IMAGE_MODELS:
+        model = "gemini-2.5-flash-image"
+    visual_prompt = (
+        "Create a high-quality vertical 9:16 abstract livestream overlay background. "
+        "No text, no logos, no readable words, no people. Leave calm negative space on the right and bottom. "
+        "Professional, subtle, readable behind typography. "
+        f"Prompt: {prompt}"
+    )
+    try:
+        client = genai.Client(api_key=api_key)
+        kwargs: dict[str, Any] = {"model": model, "contents": [visual_prompt]}
+        if model == "gemini-2.0-flash-preview-image-generation" and genai_types is not None:
+            kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
+        response = client.models.generate_content(**kwargs)
+        parts = getattr(response, "parts", None)
+        if parts is None and getattr(response, "candidates", None):
+            parts = response.candidates[0].content.parts
+        for part in parts or []:
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data is not None:
+                data = getattr(inline_data, "data", b"")
+                mime_type = getattr(inline_data, "mime_type", "image/png") or "image/png"
+                if isinstance(data, str):
+                    encoded = data
+                else:
+                    encoded = base64.b64encode(data).decode("ascii")
+                data_url = f"data:{mime_type};base64,{encoded}"
+                image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
+                title = f"KI-Bild {time.strftime('%H:%M:%S')}"
+                st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
+                st.session_state.active_image_id = image_id
+                st.session_state.show_background = True
+                st.session_state.bg_brightness = 118
+                st.session_state.bg_dim = 24
+                st.session_state.image_generation_error = ""
+                return True, "Hintergrundbild generiert und aktiviert."
+        return False, "Google hat kein Bild zurückgegeben. Bitte Prompt oder Modell wechseln."
+    except Exception as exc:
+        return False, friendly_ai_error(exc)
+
+
+def chat_sentiment_state() -> dict[str, Any]:
+    words = recent_chat_words()
+    if not words:
+        return {"score": 0.0, "label": "neutral", "intensity": 0.18}
+    pos = sum(1 for word in words if normalize_word(word) in POSITIVE_WORDS)
+    neg = sum(1 for word in words if normalize_word(word) in NEGATIVE_WORDS)
+    score = (pos - neg) / max(1, pos + neg)
+    label = "positiv" if score > 0.18 else "angespannt" if score < -0.18 else "neutral"
+    intensity = min(1.0, (pos + neg) / max(12, len(words) * 0.18))
+    return {"score": score, "label": label, "intensity": max(0.16, intensity)}
 
 
 # ---------------------------------------------------------------------------
@@ -1440,6 +1549,11 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     anim_enabled = state.get("show_animations", True)
     overlay_opacity = state.get("overlay_opacity", 100) / 100
     dim_alpha = max(0, min(0.5, state.get("bg_dim", 25) / 100))
+    motion_opacity = max(0, min(0.8, state.get("motion_opacity", 22) / 100))
+    heat = state.get("sentiment", {"score": 0, "label": "neutral", "intensity": 0.18})
+    heat_score = float(heat.get("score", 0))
+    heat_intensity = float(heat.get("intensity", 0.18))
+    heat_opacity = max(0, min(0.75, state.get("heatmap_opacity", 28) / 100))
     cloud_w = state.get("cloud_width", 68)
     cloud_h = state.get("cloud_height", 66)
     cloud_x = state.get("cloud_pos_x", theme.get("cloud_x", 45))
@@ -1529,12 +1643,22 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     safe_html = ""
     if safe_zones and not hidden:
         safe_html = '<div class="safe guest">Gäste-Zone</div><div class="safe chat">TikTok Chat-Zone</div>'
+    motion_html = ""
+    if not hidden and anim_enabled and state.get("motion_effects"):
+        effect_nodes = "".join(f'<i class="fx fx-{html.escape(effect.lower())}"></i>' for effect in state.get("motion_effects", []))
+        motion_html = f'<div class="motion-layer">{effect_nodes}</div>'
+    heatmap_html = ""
+    if not hidden and state.get("show_heatmap"):
+        heat_cls = "positive" if heat_score > 0.18 else "negative" if heat_score < -0.18 else "neutral"
+        heatmap_html = f'<div class="heatmap {heat_cls}"><span>Stimmung: {html.escape(str(heat.get("label", "neutral")))}</span></div>'
     video_html = ""
     if not hidden and show_video:
         video_html = (
             f'<video class="stage-video" src="{html.escape(state.get("video_url", ""))}" '
+            f'id="stageVideo" '
             f'controls playsinline {"muted" if state.get("video_muted") else ""} '
             f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};object-fit:{html.escape(state.get("video_fit","contain"))};"></video>'
+            f'<div class="video-controls"><button onclick="stageVideo.currentTime=Math.max(0,stageVideo.currentTime-10)">-10</button><button onclick="stageVideo.paused?stageVideo.play():stageVideo.pause()">Play/Pause</button><button onclick="stageVideo.currentTime=stageVideo.currentTime+10">+10</button></div>'
         )
     website_html = ""
     if not hidden and state.get("show_website") and state.get("website_url"):
@@ -1589,6 +1713,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       --topicWeight:{topic_weight}; --keywordWeight:{keyword_weight}; --highlightWeight:{highlight_weight}; --countdownWeight:{countdown_weight};
       --topicSpacing:{topic_spacing:.2f}em; --highlightSpacing:{highlight_spacing:.2f}em; --topicTransform:{topic_transform};
       --dim:{dim_alpha:.2f};
+      --motionOpacity:{motion_opacity:.2f}; --motionSpeed:{max(.4, state.get("motion_speed", 55) / 55):.2f};
+      --heatOpacity:{heat_opacity:.2f}; --heatIntensity:{heat_intensity:.2f};
     }}
     * {{ box-sizing:border-box; }}
     body {{
@@ -1623,6 +1749,20 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .layout-clean .readability {{ background:linear-gradient(90deg, rgba(255,255,255,.68), rgba(255,255,255,.24) 65%, rgba(255,255,255,.06)); }}
     .layout-soft .readability {{ background:radial-gradient(circle at 18% 26%, rgba(176,78,111,.16), transparent 28%), linear-gradient(90deg, rgba(255,246,239,.72), rgba(255,246,239,.2) 62%, rgba(255,246,239,.05)); }}
     .grain {{ position:absolute; inset:0; z-index:-2; background-image:linear-gradient(115deg, transparent, rgba(255,255,255,.035), transparent); opacity:.55; }}
+    .motion-layer {{ position:absolute; inset:0; z-index:1; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
+    .fx {{ position:absolute; inset:-18%; display:block; }}
+    .fx-nebel {{ background:radial-gradient(circle at 18% 42%, rgba(255,255,255,.28), transparent 26%), radial-gradient(circle at 82% 62%, rgba(255,255,255,.18), transparent 32%); filter:blur(18px); animation: drift calc(20s / var(--motionSpeed)) linear infinite; }}
+    .fx-lagerfeuer {{ background:radial-gradient(ellipse at 30% 86%, rgba(255,117,24,.45), transparent 20%), radial-gradient(ellipse at 48% 90%, rgba(255,205,92,.32), transparent 24%); animation:flicker calc(3s / var(--motionSpeed)) ease-in-out infinite; }}
+    .fx-lichtstaub {{ background-image:radial-gradient(circle, rgba(255,255,255,.75) 0 1px, transparent 2px); background-size:72px 72px; animation: drift calc(30s / var(--motionSpeed)) linear infinite reverse; }}
+    .fx-scanlines {{ background:repeating-linear-gradient(180deg, rgba(255,255,255,.10) 0 1px, transparent 1px 8px); animation: scan calc(8s / var(--motionSpeed)) linear infinite; }}
+    .fx-regen {{ background:repeating-linear-gradient(110deg, transparent 0 16px, rgba(160,200,255,.18) 17px 19px, transparent 20px 34px); animation: rain calc(5s / var(--motionSpeed)) linear infinite; }}
+    .fx-funkeln {{ background:radial-gradient(circle at 20% 20%, rgba(255,255,255,.75), transparent 1.5%), radial-gradient(circle at 70% 36%, rgba(255,255,255,.55), transparent 1.2%), radial-gradient(circle at 52% 80%, rgba(255,255,255,.45), transparent 1.4%); animation:flicker calc(4s / var(--motionSpeed)) ease-in-out infinite alternate; }}
+    .fx-wellen {{ background:repeating-radial-gradient(ellipse at 50% 60%, transparent 0 8%, rgba(255,255,255,.12) 9%, transparent 10%); animation:pulse calc(10s / var(--motionSpeed)) ease-in-out infinite; }}
+    .heatmap {{ position:absolute; inset:0; z-index:1; pointer-events:none; opacity:calc(var(--heatOpacity) * var(--heatIntensity)); mix-blend-mode:screen; }}
+    .heatmap.positive {{ background:radial-gradient(circle at 28% 28%, rgba(57,255,146,.55), transparent 32%), radial-gradient(circle at 70% 62%, rgba(80,180,255,.22), transparent 30%); }}
+    .heatmap.negative {{ background:radial-gradient(circle at 30% 30%, rgba(255,57,86,.55), transparent 34%), radial-gradient(circle at 65% 68%, rgba(255,176,58,.28), transparent 32%); }}
+    .heatmap.neutral {{ background:radial-gradient(circle at 38% 38%, rgba(255,255,255,.20), transparent 34%), radial-gradient(circle at 74% 58%, rgba(120,160,255,.18), transparent 32%); }}
+    .heatmap span {{ position:absolute; left:7%; bottom:14%; font-size:12px; font-weight:900; text-transform:uppercase; color:rgba(255,255,255,.72); }}
     .topic {{
       position:absolute; top:7%; left:7%; width:68%; font-weight:850; line-height:.98;
       font-family:var(--topicFont); font-weight:var(--topicWeight);
@@ -1692,6 +1832,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       box-shadow:0 18px 48px rgba(0,0,0,.42); background:#050608;
     }}
     .stage-video {{ opacity:var(--vo); }}
+    .video-controls {{ position:absolute; left:var(--vx,50%); top:calc(var(--vy,54%) + var(--vh,40%) / 2 + 18px); transform:translateX(-50%); z-index:7; display:flex; gap:8px; }}
+    .video-controls button {{ border:1px solid color-mix(in srgb, var(--accent) 36%, transparent); background:rgba(0,0,0,.58); color:#fff; border-radius:999px; padding:8px 12px; font-weight:900; cursor:pointer; }}
     .stage-web {{ z-index:4; }}
     .stage-web-card {{
       z-index:4; display:flex; flex-direction:column; justify-content:center; padding:28px;
@@ -1707,16 +1849,20 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .stage-web-card.reader p {{ max-width:96%; font-size:clamp(15px, 1.8vw, 21px); line-height:1.38; overflow:hidden; }}
     .ai-card {{
       position:absolute; left:7%; right:34%; bottom:20%; z-index:6; padding:18px 20px;
-      max-height:46%; overflow:hidden;
       border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
       backdrop-filter:blur(16px); box-shadow:0 18px 48px rgba(0,0,0,.34);
     }}
     .ai-card b {{ display:block; font-family:var(--countdownFont); color:var(--accent); margin-bottom:8px; }}
-    .ai-card p {{ margin:0; white-space:pre-wrap; font-size:clamp(14px, 1.55vw, 22px); line-height:1.28; }}
+    .ai-card p {{ margin:0; white-space:pre-wrap; font-size:clamp(11px, 1.22vw, 18px); line-height:1.24; }}
     @keyframes floaty {{
       0%,100% {{ transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s)); opacity:.82; }}
       50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity:1; }}
     }}
+    @keyframes drift {{ from {{ transform:translate3d(-4%,0,0); }} to {{ transform:translate3d(6%,-4%,0); }} }}
+    @keyframes flicker {{ 0%,100% {{ opacity:.55; transform:scale(1); }} 50% {{ opacity:1; transform:scale(1.04); }} }}
+    @keyframes scan {{ from {{ transform:translateY(-8%); }} to {{ transform:translateY(8%); }} }}
+    @keyframes rain {{ from {{ transform:translate3d(-6%,-10%,0); }} to {{ transform:translate3d(6%,10%,0); }} }}
+    @keyframes pulse {{ 0%,100% {{ transform:scale(.96); opacity:.5; }} 50% {{ transform:scale(1.05); opacity:1; }} }}
     @media (max-width: 740px) {{
       .stage-wrap {{ padding:4px; }}
       .topic {{ width:74%; font-size:calc(clamp(30px, 12vw, 58px) * var(--topicSize)); }}
@@ -1731,6 +1877,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
           <div class="bg-image"></div>
           <div class="readability"></div>
           <div class="grain"></div>
+          {heatmap_html}
+          {motion_html}
           {clock_html}
           {topic_html}
           {highlight_html}
@@ -1764,6 +1912,7 @@ def current_overlay_state() -> dict[str, Any]:
             "filtered_top": st.session_state.filtered_top,
             "live_started_at": live_started_at,
             "live_duration": live_duration,
+            "sentiment": chat_sentiment_state(),
         }
     )
     if st.session_state.auto_highlight and not st.session_state.highlight_word and st.session_state.keywords:
@@ -1973,6 +2122,24 @@ def render_layout_panel() -> None:
 
 def render_image_panel() -> None:
     section("Bild-Manager")
+    st.session_state.image_prompt = st.text_area(
+        "KI-Hintergrund-Prompt",
+        value=st.session_state.image_prompt,
+        height=90,
+        placeholder="z. B. ruhige abstrakte Studiobühne, goldene Akzente, viel Platz rechts",
+    )
+    st.toggle("Chat der letzten 5 Minuten in Bildprompt einbeziehen", key="image_prompt_use_chat")
+    st.selectbox("Bildmodell", IMAGE_MODELS, key="image_model")
+    if st.button("KI-Hintergrund erstellen", key="image_generate_ai", use_container_width=True):
+        ok, message = generate_background_image(st.session_state.image_prompt, st.session_state.image_prompt_use_chat)
+        if ok:
+            st.success(message)
+        else:
+            st.session_state.image_generation_error = message
+            st.error(message)
+    if st.session_state.image_generation_error:
+        st.caption(st.session_state.image_generation_error)
+    st.divider()
     uploads = st.file_uploader("Hintergrundbilder", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
     if uploads:
         known = {item["id"] for item in st.session_state.images}
@@ -2136,6 +2303,17 @@ def render_faders() -> None:
     st.slider("Cloud Rotation / Tilt", -10, 10, key="cloud_tilt")
     st.slider("Overlay-Transparenz", 20, 100, key="overlay_opacity")
     st.slider("Übergangsgeschwindigkeit", 10, 100, key="transition_speed")
+
+
+def render_motion_panel() -> None:
+    section("Bewegung / Heatmap")
+    st.multiselect("Transparente Bewegungs-Layer", MOTION_EFFECTS, key="motion_effects")
+    st.slider("Bewegungs-Transparenz", 0, 80, key="motion_opacity")
+    st.slider("Bewegungs-Geschwindigkeit", 10, 100, key="motion_speed")
+    st.toggle("Stimmungs-Heatmap anzeigen", key="show_heatmap")
+    st.slider("Heatmap-Transparenz", 0, 75, key="heatmap_opacity")
+    sentiment = chat_sentiment_state()
+    st.caption(f"Aktuelle Stimmung: {sentiment['label']} · Score {sentiment['score']:.2f}")
 
 
 def render_media_panel() -> None:
@@ -2380,16 +2558,19 @@ def render_control_panel() -> None:
     with st.expander("8. Medien / Web", expanded=False):
         render_section_note("Video und Website liegen direkt auf der Bühne. Die eingebetteten Controls sind in der Bühnenfläche klickbar.")
         render_media_panel()
-    with st.expander("9. Bilder", expanded=False):
+    with st.expander("9. Bewegung / Heatmap", expanded=False):
+        render_section_note("Transparente Motion-Layer laufen über dem Hintergrund, damit TikTok eine dezente Bewegung erkennt.")
+        render_motion_panel()
+    with st.expander("10. Bilder", expanded=False):
         render_section_note("Ausblenden hält das aktive Bild bereit. Löschen entfernt es aus der lokalen Bildbibliothek.")
         render_image_panel()
-    with st.expander("10. KI-Check", expanded=False):
+    with st.expander("11. KI-Check", expanded=False):
         render_ai_panel()
-    with st.expander("11. Typografie", expanded=False):
+    with st.expander("12. Typografie", expanded=False):
         render_typography_panel()
-    with st.expander("12. Safety", expanded=False):
+    with st.expander("13. Safety", expanded=False):
         render_safety_panel()
-    with st.expander("13. Persistenz / Backup", expanded=False):
+    with st.expander("14. Persistenz / Backup", expanded=False):
         render_persistence_panel()
 
 

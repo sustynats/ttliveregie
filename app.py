@@ -1285,6 +1285,35 @@ def friendly_ai_error(exc: Exception) -> str:
     return f"KI-Anfrage fehlgeschlagen: {raw[:420]}"
 
 
+def render_copyable_url(label: str, url: str, key: str) -> None:
+    st.markdown(f"**{label}**")
+    st.text_input(label, value=url, key=f"{key}_url", label_visibility="collapsed", disabled=True)
+    st.components.v1.html(
+        f"""
+        <button id="copy-{key}" style="
+            width:100%;height:40px;border-radius:8px;border:1px solid rgba(255,255,255,.18);
+            background:#242a31;color:#fff6ea;font-weight:800;cursor:pointer;font-family:system-ui;">
+            URL kopieren
+        </button>
+        <script>
+        const button = document.getElementById("copy-{key}");
+        button.addEventListener("click", async () => {{
+            try {{
+                await navigator.clipboard.writeText({json.dumps(url)});
+                button.textContent = "Kopiert";
+                setTimeout(() => button.textContent = "URL kopieren", 1400);
+            }} catch (error) {{
+                button.textContent = "Kopieren fehlgeschlagen";
+                setTimeout(() => button.textContent = "URL kopieren", 1800);
+            }}
+        }});
+        </script>
+        """,
+        height=46,
+        scrolling=False,
+    )
+
+
 def run_ai_summary(prompt: str) -> tuple[bool, str]:
     prompt = (prompt or "").strip()
     max_chars = int(max(300, min(3000, st.session_state.get("ai_max_chars", 1200))))
@@ -1556,6 +1585,11 @@ def css_for_streamlit() -> str:
         color: #fff6ea !important;
         border-color: rgba(255,255,255,.42);
         border-radius: 8px;
+    }
+    .stTextInput input:disabled, .stTextArea textarea:disabled {
+        -webkit-text-fill-color: #fff6ea !important;
+        color: #fff6ea !important;
+        opacity: 1 !important;
     }
     .stTextInput input::placeholder, .stTextArea textarea::placeholder {
         color: #8f98a4 !important;
@@ -2687,8 +2721,8 @@ def render_persistence_panel() -> None:
     )
     cloud_url = f"https://ttliveregie.streamlit.app/?overlay=1&room={st.session_state.overlay_room_id}"
     local_url = f"http://localhost:8501/?overlay=1&room={st.session_state.overlay_room_id}"
-    st.markdown(f"**Streamlit-Cloud Browserquelle:** `{cloud_url}`")
-    st.markdown(f"**Lokale Browserquelle:** `{local_url}`")
+    render_copyable_url("Streamlit-Cloud Browserquelle", cloud_url, "cloud_overlay")
+    render_copyable_url("Lokale Browserquelle", local_url, "local_overlay")
     if st.button("Neue geheime Overlay-ID erzeugen", key="room_rotate", use_container_width=True):
         st.session_state.overlay_room_id = safe_profile_id(str(uuid.uuid4()))[:18]
         save_persisted_state("rotate_room")

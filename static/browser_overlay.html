@@ -538,10 +538,12 @@
         var url = readableUrl(state.website_url);
         var mode = state.website_mode || "Auto";
         var hasPreview = !!state.website_preview_text;
+        var hasProxy = !!state.website_proxy_html;
         var blocked = isKnownBlocked(url);
-        var useIframe = mode === "Interaktiver Browser" || (mode === "Auto" && !hasPreview && !blocked);
-        var usePreview = mode === "Website-Vorschau" || (mode === "Auto" && hasPreview);
-        var key = (useIframe ? "iframe:" : usePreview ? "preview:" : "card:") + url + "|" + (state.website_preview_title || "") + "|" + (state.website_preview_text || "");
+        var useProxy = mode === "Website-Proxy" || (mode === "Auto" && hasProxy);
+        var useIframe = mode === "Interaktiver Browser" || (mode === "Auto" && !hasPreview && !hasProxy && !blocked);
+        var usePreview = mode === "Website-Vorschau" || (mode === "Auto" && hasPreview && !hasProxy);
+        var key = (useProxy ? "proxy:" : useIframe ? "iframe:" : usePreview ? "preview:" : "card:") + url + "|" + (state.website_preview_title || "") + "|" + (state.website_preview_text || "") + "|" + (state.website_proxy_html ? state.website_proxy_html.length : 0);
         var webX = clamp(state.website_x || 50, 0, 100) + "%";
         var webY = clamp(state.website_y || 54, 0, 100) + "%";
         var webW = clamp(state.website_width || 76, 20, 100) + "%";
@@ -552,7 +554,9 @@
         layer.style.setProperty("--web-h", webH);
         if (key !== currentWebsiteKey) {
           currentWebsiteKey = key;
-          if (useIframe) {
+          if (useProxy) {
+            layer.innerHTML = '<iframe title="Website-Proxy" srcdoc="' + escapeHtml(state.website_proxy_html || "") + '" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>';
+          } else if (useIframe) {
             layer.innerHTML = '<iframe title="Website" src="' + url.replace(/"/g, "&quot;") + '" allow="clipboard-read; clipboard-write; fullscreen; autoplay" referrerpolicy="no-referrer-when-downgrade"></iframe>';
           } else {
             var title = state.website_preview_title || hostOf(url);

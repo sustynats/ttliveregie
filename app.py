@@ -16,7 +16,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import regex
 import streamlit as st
@@ -873,6 +873,8 @@ def init_state() -> None:
         "website_preview_title": "",
         "website_preview_text": "",
         "website_preview_error": "",
+        "website_proxy_html": "",
+        "website_proxy_error": "",
         "website_x": 50,
         "website_y": 54,
         "website_width": 76,
@@ -996,7 +998,7 @@ def snapshot_scene() -> dict[str, Any]:
         "focus_mode", "clear_overlay", "user_adjusted_cloud_position", "user_adjusted_image_look",
         "show_video", "video_url", "video_show_background", "video_x", "video_y", "video_width", "video_height",
         "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode",
-        "website_preview_title", "website_preview_text", "website_preview_error", "website_x", "website_y",
+        "website_preview_title", "website_preview_text", "website_preview_error", "website_proxy_html", "website_proxy_error", "website_x", "website_y",
         "website_width", "website_height", "show_pdf", "pdf_name", "pdf_data", "pdf_orientation", "pdf_x", "pdf_y",
         "pdf_width", "pdf_height", "pdf_zoom", "show_ai_card", "ai_prompt", "ai_response", "ai_error", "ai_model", "overlay_room_id",
         "ai_max_chars", "image_prompt", "image_model", "image_prompt_use_chat", "image_generation_error",
@@ -1309,6 +1311,70 @@ def fetch_website_preview(url: str) -> tuple[bool, str, str]:
         return True, title[:180], body
     except Exception as exc:
         return False, "", f"Website-Vorschau fehlgeschlagen: {exc}"
+
+
+def fetch_website_proxy_html(url: str) -> tuple[bool, str]:
+    url = readable_url(url)
+    if not url:
+        return False, "Bitte erst eine Website-URL eingeben."
+    if requests is None or BeautifulSoup is None:
+        return False, "Website-Proxy benoetigt requests und beautifulsoup4 aus requirements.txt."
+    try:
+        response = requests.get(
+            url,
+            timeout=10,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "de-DE,de;q=0.9,en;q=0.7",
+            },
+        )
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        if soup.head is None:
+            head = soup.new_tag("head")
+            if soup.html:
+                soup.html.insert(0, head)
+            else:
+                soup.insert(0, head)
+        base = soup.new_tag("base", href=url, target="_blank")
+        soup.head.insert(0, base)
+        for tag in soup.find_all(["script", "iframe", "object", "embed", "form"]):
+            tag.decompose()
+        for tag in soup.find_all(True):
+            for attr in ("src", "href", "poster"):
+                value = tag.get(attr)
+                if value and not str(value).startswith(("data:", "blob:", "mailto:", "tel:", "#")):
+                    tag[attr] = urljoin(url, value)
+            for attr in ("srcset", "data-srcset"):
+                if tag.get(attr):
+                    tag[attr] = ""
+        style = soup.new_tag("style")
+        style.string = """
+        html, body { margin:0; min-height:100%; background:#f7f4ee; color:#151515; font-family:Arial, Helvetica, sans-serif; }
+        body { padding:24px; overflow:auto; }
+        img, video { max-width:100%; height:auto; }
+        a { color:#a01642; }
+        article, main, body > div { max-width:1100px; }
+        * { box-sizing:border-box; }
+        """
+        soup.head.append(style)
+        proxied = "<!doctype html>\n" + str(soup)
+        max_chars = 220_000
+        if len(proxied) > max_chars:
+            ok, title, text = fetch_website_preview(url)
+            if ok:
+                proxied = (
+                    "<!doctype html><html><head><meta charset='utf-8'><style>"
+                    "body{margin:0;padding:32px;background:#f7f4ee;color:#151515;font-family:Arial,Helvetica,sans-serif;font-size:22px;line-height:1.35}"
+                    "h1{font-size:48px;line-height:1;margin:0 0 24px}small{color:#777;word-break:break-all}"
+                    "</style></head><body>"
+                    f"<h1>{html.escape(title)}</h1><p>{html.escape(text)}</p><small>{html.escape(url)}</small>"
+                    "</body></html>"
+                )
+        return True, proxied
+    except Exception as exc:
+        return False, f"Website-Proxy fehlgeschlagen: {exc}"
 
 
 def brighten_stage() -> None:
@@ -2319,10 +2385,18 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         website_url = readable_url(state.get("website_url", ""))
         website_mode = state.get("website_mode", "Auto")
         has_preview = bool(state.get("website_preview_text"))
-        use_reader = website_mode == "Website-Vorschau" or (website_mode == "Auto" and has_preview)
+        has_proxy = bool(state.get("website_proxy_html"))
+        use_proxy = website_mode == "Website-Proxy" or (website_mode == "Auto" and has_proxy)
+        use_reader = website_mode == "Website-Vorschau" or (website_mode == "Auto" and has_preview and not has_proxy)
         use_link_card = website_mode == "Link-Karte" or website_mode == "Auto"
         host = html.escape(url_host(website_url) or website_url)
-        if use_reader:
+        if use_proxy:
+            website_html = (
+                f'<iframe class="stage-web website-proxy" srcdoc="{html.escape(state.get("website_proxy_html", ""))}" '
+                f'style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;" '
+                f'sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>'
+            )
+        elif use_reader:
             website_html = (
                 f'<div class="stage-web-card reader" style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;">'
                 f'<span>Website-Vorschau · {host}</span><b>{html.escape(state.get("website_preview_title") or host)}</b>'
@@ -3281,15 +3355,26 @@ def render_media_panel() -> None:
         value=st.session_state.website_url,
         placeholder="https://example.com",
     )
-    st.caption("Normale Websites blockieren haeufig iframe-Einbettung. Auto zeigt deshalb stabil eine Vorschau oder Link-Karte; Interaktiver Browser funktioniert nur mit embed-freundlichen Seiten.")
+    st.caption("Normale Websites blockieren haeufig iframe-Einbettung. Nutze Website-Proxy fuer Artikel-/News-Seiten; Interaktiver Browser funktioniert nur mit embed-freundlichen Seiten.")
     st.toggle("Website anzeigen", key="show_website")
     if st.session_state.website_url:
         st.session_state.website_url = readable_url(st.session_state.website_url)
-    st.selectbox("Website Darstellung", ["Auto", "Interaktiver Browser", "Website-Vorschau", "Link-Karte"], key="website_mode")
+    st.selectbox("Website Darstellung", ["Auto", "Website-Proxy", "Website-Vorschau", "Interaktiver Browser", "Link-Karte"], key="website_mode")
     if st.session_state.website_url and is_known_iframe_blocked(st.session_state.website_url):
         st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Website-Vorschau, Link-Karte oder eine offizielle Embed-/Video-URL.")
     c1, c2 = st.columns(2)
-    if c1.button("Website-Vorschau laden", key="website_preview_load", use_container_width=True):
+    if c1.button("Website-Proxy laden", key="website_proxy_load", use_container_width=True):
+        ok, result = fetch_website_proxy_html(st.session_state.website_url)
+        if ok:
+            st.session_state.website_proxy_html = result
+            st.session_state.website_proxy_error = ""
+            st.session_state.website_mode = "Website-Proxy"
+            st.session_state.show_website = True
+            st.success("Website-Proxy geladen.")
+        else:
+            st.session_state.website_proxy_error = result
+            st.error(result)
+    if c2.button("Website-Vorschau laden", key="website_preview_load", use_container_width=True):
         ok, title, text = fetch_website_preview(st.session_state.website_url)
         if ok:
             st.session_state.website_preview_title = title
@@ -3301,12 +3386,20 @@ def render_media_panel() -> None:
         else:
             st.session_state.website_preview_error = text
             st.error(text)
-    if c2.button("Website-Vorschau löschen", key="website_preview_clear", use_container_width=True):
+    c3, c4 = st.columns(2)
+    if c3.button("Proxy löschen", key="website_proxy_clear", use_container_width=True):
+        st.session_state.website_proxy_html = ""
+        st.session_state.website_proxy_error = ""
+    if c4.button("Vorschau löschen", key="website_preview_clear", use_container_width=True):
         st.session_state.website_preview_title = ""
         st.session_state.website_preview_text = ""
         st.session_state.website_preview_error = ""
+    if st.session_state.website_proxy_error:
+        st.caption(st.session_state.website_proxy_error)
     if st.session_state.website_preview_error:
         st.caption(st.session_state.website_preview_error)
+    if st.session_state.website_proxy_html:
+        st.caption(f"Website-Proxy aktiv ({len(st.session_state.website_proxy_html):,} Zeichen HTML).")
     if st.session_state.website_preview_text:
         st.text_area("Geladene Vorschau", value=st.session_state.website_preview_text, height=110, disabled=True)
     st.slider("Website Position X", 0, 100, key="website_x")

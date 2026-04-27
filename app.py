@@ -1712,6 +1712,61 @@ def css_for_streamlit() -> str:
     """
 
 
+def css_for_overlay_mode() -> str:
+    return """
+    <style>
+    html,
+    body,
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"],
+    .main,
+    .block-container {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100vw !important;
+        max-width: none !important;
+        min-width: 100vw !important;
+        height: 100vh !important;
+        min-height: 100vh !important;
+        max-height: 100vh !important;
+        overflow: hidden !important;
+        background: #050608 !important;
+    }
+    [data-testid="stHeader"],
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    #MainMenu,
+    header,
+    footer {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+    }
+    .block-container > div,
+    .element-container,
+    [data-testid="stElementContainer"] {
+        width: 100vw !important;
+        height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    iframe {
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        min-height: 100vh !important;
+        border: 0 !important;
+        display: block !important;
+        background: #050608 !important;
+    }
+    </style>
+    """
+
+
 def render_overlay_html(state: dict[str, Any]) -> str:
     layout = state.get("layout", "Editorial Dark")
     layout = LEGACY_LAYOUT_MAP.get(layout, layout)
@@ -2848,15 +2903,18 @@ def render_control_panel() -> None:
 def main() -> None:
     st.set_page_config(page_title="TikTok Live Regiepult", page_icon="●", layout="wide", initial_sidebar_state="collapsed")
     init_state()
-    load_persisted_state_once()
-    st.markdown(css_for_streamlit(), unsafe_allow_html=True)
     overlay_mode = st.query_params.get("overlay", "0") == "1"
+    if overlay_mode:
+        st.markdown(css_for_overlay_mode(), unsafe_allow_html=True)
+    else:
+        load_persisted_state_once()
+        st.markdown(css_for_streamlit(), unsafe_allow_html=True)
     st_autorefresh(interval=2500 if overlay_mode else 4000, key="refresh")
     update_countdown()
 
     if overlay_mode:
         state = load_overlay_state()
-        st.components.v1.html(render_overlay_html(state), height=980, scrolling=False)
+        st.components.v1.html(render_overlay_html(state), height=1080, scrolling=False)
         return
 
     drain_live_comments()

@@ -68,7 +68,7 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
-DEFAULTS_VERSION = 8
+DEFAULTS_VERSION = 9
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -772,6 +772,16 @@ def font_stack(name: str) -> str:
     return FONT_PRESETS.get(name, FONT_PRESETS["System Sans"])
 
 
+def layout_font(layout: str | None = None) -> str:
+    theme = THEMES.get(layout or st.session_state.get("layout", "Neon Pop"), THEMES["Neon Pop"])
+    font = theme.get("font", "Poppins")
+    return font if font in FONT_PRESETS else "Poppins"
+
+
+def mark_typography_adjusted() -> None:
+    st.session_state.user_adjusted_typography = True
+
+
 # ---------------------------------------------------------------------------
 # State Management
 # ---------------------------------------------------------------------------
@@ -854,14 +864,14 @@ def init_state() -> None:
         "highlight_text_size": 100,
         "countdown_text_size": 100,
         "clock_text_size": 100,
-        "topic_font_family": "Playfair Display",
-        "topic_font_weight": 800,
+        "topic_font_family": "Poppins",
+        "topic_font_weight": 850,
         "topic_letter_spacing": 0,
         "topic_text_transform": "normal",
         "keyword_font_family": "Inter",
         "keyword_font_weight": 760,
         "keyword_random_weight": False,
-        "highlight_font_family": "Playfair Display",
+        "highlight_font_family": "Poppins",
         "highlight_font_weight": 900,
         "highlight_letter_spacing": 0,
         "countdown_font_family": "Inter",
@@ -945,12 +955,23 @@ def init_state() -> None:
         "backup_import_text": "",
         "user_adjusted_cloud_position": False,
         "user_adjusted_image_look": False,
+        "user_adjusted_typography": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
     if st.session_state.layout in LEGACY_LAYOUT_MAP:
         st.session_state.layout = LEGACY_LAYOUT_MAP[st.session_state.layout]
+    if not st.session_state.get("user_adjusted_typography", False):
+        st.session_state.topic_font_family = layout_font(st.session_state.layout)
+        st.session_state.highlight_font_family = layout_font(st.session_state.layout)
+    else:
+        if st.session_state.get("topic_font_family") not in FONT_PRESETS:
+            st.session_state.topic_font_family = layout_font(st.session_state.layout)
+        if st.session_state.get("highlight_font_family") not in FONT_PRESETS:
+            st.session_state.highlight_font_family = st.session_state.topic_font_family
+        if st.session_state.get("keyword_font_family") not in FONT_PRESETS:
+            st.session_state.keyword_font_family = "Inter"
     if st.session_state.get("ai_model") in LEGACY_AI_MODEL_MAP:
         st.session_state.ai_model = LEGACY_AI_MODEL_MAP[st.session_state.ai_model]
     if st.session_state.get("ai_model") not in AI_MODELS:
@@ -1028,7 +1049,7 @@ def snapshot_scene() -> dict[str, Any]:
         "topic_letter_spacing", "topic_text_transform", "keyword_font_family", "keyword_font_weight",
         "keyword_random_weight", "highlight_font_family", "highlight_font_weight", "highlight_letter_spacing",
         "countdown_font_family", "countdown_font_weight", "overlay_opacity", "transition_speed",
-        "focus_mode", "clear_overlay", "user_adjusted_cloud_position", "user_adjusted_image_look",
+        "focus_mode", "clear_overlay", "user_adjusted_cloud_position", "user_adjusted_image_look", "user_adjusted_typography",
         "show_video", "video_url", "video_show_background", "video_x", "video_y", "video_width", "video_height",
         "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode",
         "website_preview_title", "website_preview_text", "website_preview_error", "website_proxy_html", "website_proxy_error", "website_x", "website_y",
@@ -1053,6 +1074,8 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.cloud_height = min(int(st.session_state.get("cloud_height", 58) or 58), 60)
     st.session_state.topic_font_family = "Poppins"
     st.session_state.keyword_font_family = "Inter"
+    st.session_state.highlight_font_family = "Poppins"
+    st.session_state.user_adjusted_typography = False
     st.session_state.motion_effects = ["Aerosol-Wolken"]
     st.session_state.show_motion_layers = True
     st.session_state.motion_opacity = max(45, int(st.session_state.get("motion_opacity", 45) or 45))
@@ -1226,6 +1249,16 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.ai_model = "gemini-2.5-flash"
     if int(payload.get("defaults_version", 0) or 0) < DEFAULTS_VERSION:
         apply_visual_defaults_v3()
+    elif not st.session_state.get("user_adjusted_typography", False):
+        st.session_state.topic_font_family = layout_font(st.session_state.layout)
+        st.session_state.highlight_font_family = layout_font(st.session_state.layout)
+    else:
+        if st.session_state.get("topic_font_family") not in FONT_PRESETS:
+            st.session_state.topic_font_family = layout_font(st.session_state.layout)
+        if st.session_state.get("highlight_font_family") not in FONT_PRESETS:
+            st.session_state.highlight_font_family = st.session_state.topic_font_family
+        if st.session_state.get("keyword_font_family") not in FONT_PRESETS:
+            st.session_state.keyword_font_family = "Inter"
     if is_ai_error_text(st.session_state.get("ai_response", "")):
         st.session_state.ai_error = st.session_state.ai_response
         st.session_state.ai_response = ""
@@ -1264,6 +1297,8 @@ def reset_stage_to_safe_defaults() -> None:
     st.session_state.focus_mode = False
     st.session_state.topic_font_family = "Poppins"
     st.session_state.keyword_font_family = "Inter"
+    st.session_state.highlight_font_family = "Poppins"
+    st.session_state.user_adjusted_typography = False
     st.session_state.topic_font_weight = 850
     st.session_state.keyword_font_weight = 760
     st.session_state.topic_letter_spacing = 0
@@ -2526,6 +2561,17 @@ def current_overlay_state() -> dict[str, Any]:
     if layout not in THEMES:
         layout = "Editorial Dark"
     theme = THEMES[layout]
+    preset_font = layout_font(layout)
+    if not st.session_state.get("user_adjusted_typography", False):
+        state["topic_font_family"] = preset_font
+        state["highlight_font_family"] = preset_font
+        state["keyword_font_family"] = state.get("keyword_font_family") if state.get("keyword_font_family") in FONT_PRESETS else "Inter"
+    else:
+        state["topic_font_family"] = state.get("topic_font_family") if state.get("topic_font_family") in FONT_PRESETS else preset_font
+        state["highlight_font_family"] = (
+            state.get("highlight_font_family") if state.get("highlight_font_family") in FONT_PRESETS else state["topic_font_family"]
+        )
+        state["keyword_font_family"] = state.get("keyword_font_family") if state.get("keyword_font_family") in FONT_PRESETS else "Inter"
     state["layout"] = layout
     state.update(
         {
@@ -3084,6 +3130,7 @@ def render_layout_panel() -> None:
             st.session_state.layout = name
             st.session_state.topic_font_family = theme.get("font", st.session_state.topic_font_family)
             st.session_state.highlight_font_family = theme.get("font", st.session_state.highlight_font_family)
+            st.session_state.user_adjusted_typography = False
             if not st.session_state.cloud_style_locked:
                 st.session_state.cloud_style = theme.get("cloud_style", st.session_state.cloud_style)
                 if not st.session_state.user_adjusted_cloud_position:
@@ -3609,39 +3656,39 @@ def render_typography_panel() -> None:
     section("Typografie")
     fonts = list(FONT_PRESETS)
     transforms = ["normal", "uppercase"]
-    st.selectbox("Thema Font", fonts, key="topic_font_family")
+    st.selectbox("Thema Font", fonts, key="topic_font_family", on_change=mark_typography_adjusted)
     st.markdown(
         f'<div class="font-preview" style="font-family:{font_stack(st.session_state.topic_font_family)}">Thema Vorschau: Worueber sprechen wir gerade?</div>',
         unsafe_allow_html=True,
     )
-    st.slider("Thema Größe", 65, 180, key="topic_text_size")
-    st.slider("Thema Gewicht", 300, 950, key="topic_font_weight", step=50)
-    st.slider("Thema Letter Spacing", -8, 18, key="topic_letter_spacing")
-    st.selectbox("Thema Text Transform", transforms, key="topic_text_transform")
-    st.selectbox("Keyword Font", fonts, key="keyword_font_family")
+    st.slider("Thema Größe", 65, 180, key="topic_text_size", on_change=mark_typography_adjusted)
+    st.slider("Thema Gewicht", 300, 950, key="topic_font_weight", step=50, on_change=mark_typography_adjusted)
+    st.slider("Thema Letter Spacing", -8, 18, key="topic_letter_spacing", on_change=mark_typography_adjusted)
+    st.selectbox("Thema Text Transform", transforms, key="topic_text_transform", on_change=mark_typography_adjusted)
+    st.selectbox("Keyword Font", fonts, key="keyword_font_family", on_change=mark_typography_adjusted)
     st.markdown(
         f'<div class="font-preview compact" style="font-family:{font_stack(st.session_state.keyword_font_family)}">Keyword Vorschau: demokratie dialog fakten live</div>',
         unsafe_allow_html=True,
     )
-    st.slider("Keyword Basisgröße", 30, 180, key="keyword_size")
-    st.slider("Keyword Gewicht", 300, 950, key="keyword_font_weight", step=50)
-    st.toggle("Zufällige Keyword-Gewichtung", key="keyword_random_weight")
-    st.selectbox("Highlight Font", fonts, key="highlight_font_family")
+    st.slider("Keyword Basisgröße", 30, 180, key="keyword_size", on_change=mark_typography_adjusted)
+    st.slider("Keyword Gewicht", 300, 950, key="keyword_font_weight", step=50, on_change=mark_typography_adjusted)
+    st.toggle("Zufällige Keyword-Gewichtung", key="keyword_random_weight", on_change=mark_typography_adjusted)
+    st.selectbox("Highlight Font", fonts, key="highlight_font_family", on_change=mark_typography_adjusted)
     st.markdown(
         f'<div class="font-preview" style="font-family:{font_stack(st.session_state.highlight_font_family)}">Highlight Vorschau</div>',
         unsafe_allow_html=True,
     )
-    st.slider("Highlight Größe", 60, 190, key="highlight_text_size")
-    st.slider("Highlight Gewicht", 300, 950, key="highlight_font_weight", step=50)
-    st.slider("Highlight Letter Spacing", -8, 18, key="highlight_letter_spacing")
-    st.selectbox("Countdown / Uhr Font", fonts, key="countdown_font_family")
+    st.slider("Highlight Größe", 60, 190, key="highlight_text_size", on_change=mark_typography_adjusted)
+    st.slider("Highlight Gewicht", 300, 950, key="highlight_font_weight", step=50, on_change=mark_typography_adjusted)
+    st.slider("Highlight Letter Spacing", -8, 18, key="highlight_letter_spacing", on_change=mark_typography_adjusted)
+    st.selectbox("Countdown / Uhr Font", fonts, key="countdown_font_family", on_change=mark_typography_adjusted)
     st.markdown(
         f'<div class="font-preview compact" style="font-family:{font_stack(st.session_state.countdown_font_family)}">LIVE 12:34 · seit 00:12:08</div>',
         unsafe_allow_html=True,
     )
-    st.slider("Countdown Größe", 70, 160, key="countdown_text_size")
-    st.slider("Live-Uhr Größe", 70, 160, key="clock_text_size")
-    st.slider("Countdown / Uhr Gewicht", 300, 950, key="countdown_font_weight", step=50)
+    st.slider("Countdown Größe", 70, 160, key="countdown_text_size", on_change=mark_typography_adjusted)
+    st.slider("Live-Uhr Größe", 70, 160, key="clock_text_size", on_change=mark_typography_adjusted)
+    st.slider("Countdown / Uhr Gewicht", 300, 950, key="countdown_font_weight", step=50, on_change=mark_typography_adjusted)
 
 
 def safety_status() -> tuple[str, str]:

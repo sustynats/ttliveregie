@@ -274,6 +274,44 @@
       font-size: clamp(11px, 1.7vw, 18px);
       word-break: break-all;
     }
+    .pdf-layer {
+      position: absolute;
+      left: var(--pdf-x, 50%);
+      top: var(--pdf-y, 54%);
+      width: var(--pdf-w, 76%);
+      height: var(--pdf-h, 72%);
+      transform: translate(-50%, -50%);
+      z-index: 7;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.28);
+      background: #171a20;
+      box-shadow: 0 18px 48px rgba(0,0,0,.42);
+    }
+    .pdf-layer iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      background: #2a2d33;
+    }
+    .pdf-title {
+      position: absolute;
+      left: 10px;
+      top: 8px;
+      z-index: 2;
+      max-width: calc(100% - 20px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,.58);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 900;
+      pointer-events: none;
+    }
     .debug {
       position: absolute;
       left: 14px;
@@ -325,6 +363,7 @@
         <button type="button" id="videoForward">+10</button>
       </div>
       <div id="webLayer" class="web-layer hidden"></div>
+      <div id="pdfLayer" class="pdf-layer hidden"></div>
       <div id="debug" class="debug hidden"></div>
     </main>
   </div>
@@ -339,6 +378,7 @@
       var lastState = null;
       var currentVideoKey = "";
       var currentWebsiteKey = "";
+      var currentPdfKey = "";
 
       if (transparent) document.body.classList.add("transparent");
       if (test) {
@@ -518,6 +558,34 @@
         controls.classList.toggle("hidden", isYoutube);
         return true;
       }
+      function updatePdf(state, hidden) {
+        var layer = document.getElementById("pdfLayer");
+        var showPdf = !hidden && !!state.show_pdf && !!state.pdf_data;
+        if (!showPdf) {
+          layer.classList.add("hidden");
+          layer.innerHTML = "";
+          currentPdfKey = "";
+          return;
+        }
+        var pdfX = clamp(state.pdf_x || 50, 0, 100) + "%";
+        var pdfY = clamp(state.pdf_y || 54, 0, 100) + "%";
+        var pdfW = clamp(state.pdf_width || 76, 20, 100) + "%";
+        var pdfH = clamp(state.pdf_height || 72, 20, 95) + "%";
+        layer.style.setProperty("--pdf-x", pdfX);
+        layer.style.setProperty("--pdf-y", pdfY);
+        layer.style.setProperty("--pdf-w", pdfW);
+        layer.style.setProperty("--pdf-h", pdfH);
+        var zoom = clamp(state.pdf_zoom || 100, 50, 200);
+        var src = state.pdf_data + "#toolbar=1&navpanes=0&scrollbar=1&zoom=" + zoom;
+        var key = src + "|" + (state.pdf_name || "");
+        if (key !== currentPdfKey) {
+          currentPdfKey = key;
+          layer.innerHTML =
+            '<div class="pdf-title">' + escapeHtml(state.pdf_name || "PDF") + '</div>' +
+            '<iframe title="' + escapeHtml(state.pdf_name || "PDF") + '" src="' + src.replace(/"/g, "&quot;") + '"></iframe>';
+        }
+        layer.classList.remove("hidden");
+      }
       document.getElementById("videoBack").addEventListener("click", function () {
         var video = document.getElementById("stageVideo");
         if (video) video.currentTime = Math.max(0, video.currentTime - 10);
@@ -543,6 +611,7 @@
         var showCloud = !!state.show_cloud && !hidden && !state.minimal_mode;
         var videoVisible = updateVideo(state, hidden);
         updateWebsite(state, hidden);
+        updatePdf(state, hidden);
 
         root.style.setProperty("--cloud-x", clamp(state.cloud_pos_x || 50, 0, 100) + "%");
         root.style.setProperty("--cloud-y", clamp(state.cloud_pos_y || 50, 0, 100) + "%");

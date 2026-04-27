@@ -856,6 +856,15 @@ def init_state() -> None:
         "website_y": 54,
         "website_width": 76,
         "website_height": 58,
+        "show_pdf": False,
+        "pdf_name": "",
+        "pdf_data": "",
+        "pdf_orientation": "Hochformat",
+        "pdf_x": 50,
+        "pdf_y": 54,
+        "pdf_width": 76,
+        "pdf_height": 72,
+        "pdf_zoom": 100,
         "show_ai_card": False,
         "ai_prompt": "",
         "ai_response": "",
@@ -961,7 +970,8 @@ def snapshot_scene() -> dict[str, Any]:
         "show_video", "video_url", "video_show_background", "video_x", "video_y", "video_width", "video_height",
         "video_opacity", "video_fit", "video_muted", "show_website", "website_url", "website_mode",
         "website_preview_title", "website_preview_text", "website_preview_error", "website_x", "website_y",
-        "website_width", "website_height", "show_ai_card", "ai_prompt", "ai_response", "ai_error", "ai_model", "overlay_room_id",
+        "website_width", "website_height", "show_pdf", "pdf_name", "pdf_data", "pdf_orientation", "pdf_x", "pdf_y",
+        "pdf_width", "pdf_height", "pdf_zoom", "show_ai_card", "ai_prompt", "ai_response", "ai_error", "ai_model", "overlay_room_id",
         "ai_max_chars", "image_prompt", "image_model", "image_prompt_use_chat", "image_generation_error",
     ]
     return {key: st.session_state.get(key) for key in keys}
@@ -1577,6 +1587,12 @@ def image_to_data_url(uploaded_file: Any) -> str:
     return f"data:{suffix};base64,{encoded}"
 
 
+def pdf_to_data_url(uploaded_file: Any) -> str:
+    raw = uploaded_file.getvalue()
+    encoded = base64.b64encode(raw).decode("ascii")
+    return f"data:application/pdf;base64,{encoded}"
+
+
 def active_image_data() -> str:
     active_id = st.session_state.active_image_id
     for item in st.session_state.images:
@@ -2071,6 +2087,17 @@ def render_overlay_html(state: dict[str, Any]) -> str:
                 f'style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;" '
                 f'allow="clipboard-read; clipboard-write; fullscreen; autoplay" referrerpolicy="no-referrer-when-downgrade"></iframe>'
             )
+    pdf_html = ""
+    if not hidden and state.get("show_pdf") and state.get("pdf_data"):
+        pdf_src = f"{state.get('pdf_data')}#toolbar=1&navpanes=0&scrollbar=1&zoom={int(state.get('pdf_zoom', 100) or 100)}"
+        pdf_title = html.escape(state.get("pdf_name") or "PDF")
+        pdf_aspect = "portrait" if state.get("pdf_orientation", "Hochformat") == "Hochformat" else "landscape"
+        pdf_html = (
+            f'<div class="stage-pdf pdf-{pdf_aspect}" style="--px:{state.get("pdf_x",50)}%;--py:{state.get("pdf_y",54)}%;--pw:{state.get("pdf_width",76)}%;--ph:{state.get("pdf_height",72)}%;">'
+            f'<div class="pdf-title">{pdf_title}</div>'
+            f'<iframe title="{pdf_title}" src="{html.escape(pdf_src)}"></iframe>'
+            f'</div>'
+        )
     ai_html = ""
     if not hidden and state.get("show_ai_card") and state.get("ai_response"):
         ai_text = state.get("ai_response", "")
@@ -2234,7 +2261,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .safe {{ position:absolute; display:grid; place-items:center; color:rgba(255,255,255,.72); border:1px dashed rgba(255,255,255,.38); background:rgba(255,255,255,.06); font-size:13px; font-weight:800; text-transform:uppercase; }}
     .safe.guest {{ top:0; right:0; width:28%; height:100%; }}
     .safe.chat {{ left:0; right:0; bottom:0; height:18%; }}
-    .stage-video, .stage-web, .stage-web-card {{
+    .stage-video, .stage-web, .stage-web-card, .stage-pdf {{
       position:absolute; left:var(--vx, var(--wx)); top:var(--vy, var(--wy));
       width:var(--vw, var(--ww)); height:var(--vh, var(--wh));
       transform:translate(-50%,-50%); z-index:5; border-radius:8px;
@@ -2257,6 +2284,17 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .stage-web-card.reader {{ justify-content:flex-start; overflow:hidden; }}
     .stage-web-card.reader b {{ font-size:clamp(24px, 3.7vw, 46px); }}
     .stage-web-card.reader p {{ max-width:96%; font-size:clamp(15px, 1.8vw, 21px); line-height:1.38; overflow:hidden; }}
+    .stage-pdf {{
+      left:var(--px); top:var(--py); width:var(--pw); height:var(--ph); z-index:6;
+      overflow:hidden; background:#14171c;
+    }}
+    .stage-pdf.pdf-landscape {{ width:min(var(--pw), 94%); }}
+    .stage-pdf iframe {{ width:100%; height:100%; border:0; display:block; background:#2a2d33; }}
+    .pdf-title {{
+      position:absolute; left:10px; top:8px; z-index:2; padding:5px 8px; border-radius:999px;
+      background:rgba(0,0,0,.58); color:#fff; font-size:11px; font-weight:900; max-width:calc(100% - 20px);
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; pointer-events:none;
+    }}
     .ai-card {{
       position:absolute; left:7%; right:34%; bottom:20%; z-index:6; padding:18px 20px;
       border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
@@ -2297,6 +2335,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
           {highlight_html}
           {website_html}
           {video_html}
+          {pdf_html}
           {cloud_html}
           {countdown_html}
           {ai_html}
@@ -2848,6 +2887,39 @@ def render_media_panel() -> None:
     st.slider("Website Position Y", 0, 100, key="website_y")
     st.slider("Website Breite", 20, 100, key="website_width")
     st.slider("Website Höhe", 15, 90, key="website_height")
+
+    section("PDF")
+    pdf_upload = st.file_uploader("PDF hochladen", type=["pdf"], key="pdf_upload")
+    if pdf_upload is not None:
+        st.session_state.pdf_name = pdf_upload.name
+        st.session_state.pdf_data = pdf_to_data_url(pdf_upload)
+        st.session_state.show_pdf = True
+        st.success(f"PDF geladen: {pdf_upload.name}")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.toggle("PDF anzeigen", key="show_pdf")
+    with p2:
+        if st.button("PDF entfernen", key="pdf_clear", use_container_width=True):
+            st.session_state.pdf_name = ""
+            st.session_state.pdf_data = ""
+            st.session_state.show_pdf = False
+    if st.session_state.pdf_name:
+        st.caption(f"Aktives PDF: {st.session_state.pdf_name}")
+    st.radio("PDF Ausrichtung", ["Hochformat", "Querformat"], key="pdf_orientation", horizontal=True)
+    if st.button("PDF zentrieren", key="pdf_center", use_container_width=True):
+        st.session_state.pdf_x = 50
+        st.session_state.pdf_y = 54
+        if st.session_state.pdf_orientation == "Hochformat":
+            st.session_state.pdf_width = 76
+            st.session_state.pdf_height = 72
+        else:
+            st.session_state.pdf_width = 88
+            st.session_state.pdf_height = 54
+    st.slider("PDF Position X", 0, 100, key="pdf_x")
+    st.slider("PDF Position Y", 0, 100, key="pdf_y")
+    st.slider("PDF Breite", 20, 100, key="pdf_width")
+    st.slider("PDF Höhe", 20, 95, key="pdf_height")
+    st.slider("PDF Start-Zoom", 50, 200, key="pdf_zoom")
 
 
 def render_ai_panel() -> None:

@@ -333,12 +333,13 @@ body.transparent .veil { background: transparent; display: none; }
 .motion[data-hidden="1"] { display: none; }
 .motion.aerosol::before, .motion.aerosol::after {
   content: ""; position: absolute; inset: -10%;
-  background: radial-gradient(circle at 30% 40%, rgba(255,255,255,.18), transparent 38%),
-              radial-gradient(circle at 72% 70%, rgba(255,255,255,.10), transparent 40%);
-  filter: blur(18px);
+  background: radial-gradient(circle at 28% 38%, rgba(255,255,255,.28), transparent 40%),
+              radial-gradient(circle at 72% 70%, rgba(45,252,255,.16), transparent 42%),
+              radial-gradient(circle at 54% 50%, rgba(255,61,242,.12), transparent 36%);
+  filter: blur(16px);
   animation: aerosol calc(28s / var(--motionSpeed)) ease-in-out infinite;
 }
-.motion.aerosol::after { animation-direction: reverse; opacity: .8; }
+.motion.aerosol::after { animation-direction: reverse; opacity: .9; }
 .motion.fire {
   background: radial-gradient(circle at 50% 110%, rgba(255,140,40,.45), rgba(255,40,0,.30) 16%, transparent 38%);
   animation: flicker calc(2.4s / var(--motionSpeed)) steps(8, end) infinite;
@@ -924,8 +925,16 @@ body.transparent .veil { background: transparent; display: none; }
       const mm = String(now.getMinutes()).padStart(2, "0");
       const ss = String(now.getSeconds()).padStart(2, "0");
       let inner = "<span>" + hh + ":" + mm + ":" + ss + "</span>";
-      if (state.show_live_since && state.live_started_at) {
-        inner += '<span class="lbl">Live ' + (state.live_duration || "00:00:00") + "</span>";
+      if (state.show_live_since) {
+        let since = state.live_since_time || "--:--:--";
+        if (!state.live_since_time && state.live_started_at) {
+          const started = new Date(Number(state.live_started_at) * 1000);
+          const sh = String(started.getHours()).padStart(2, "0");
+          const sm = String(started.getMinutes()).padStart(2, "0");
+          const ss2 = String(started.getSeconds()).padStart(2, "0");
+          since = sh + ":" + sm + ":" + ss2;
+        }
+        inner += '<span class="lbl">Live seit ' + since + "</span>";
       }
       if (el.innerHTML !== inner) el.innerHTML = inner;
     } else {

@@ -68,7 +68,7 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
-DEFAULTS_VERSION = 5
+DEFAULTS_VERSION = 6
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -821,7 +821,7 @@ def init_state() -> None:
         "animation_intensity": 55,
         "show_motion_layers": True,
         "motion_effects": ["Aerosol-Wolken"],
-        "motion_opacity": 30,
+        "motion_opacity": 45,
         "motion_speed": 55,
         "show_heatmap": False,
         "heatmap_opacity": 28,
@@ -1042,7 +1042,8 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.topic_font_family = "Poppins"
     st.session_state.keyword_font_family = "Inter"
     st.session_state.motion_effects = ["Aerosol-Wolken"]
-    st.session_state.motion_opacity = 30
+    st.session_state.show_motion_layers = True
+    st.session_state.motion_opacity = max(45, int(st.session_state.get("motion_opacity", 45) or 45))
     st.session_state.bg_dim = min(18, int(st.session_state.get("bg_dim", 18) or 18))
     st.session_state.bg_brightness = max(125, int(st.session_state.get("bg_brightness", 125) or 125))
     st.session_state.show_clock = True
@@ -1155,7 +1156,7 @@ def static_overlay_url(base_url: str, room_id: str, **params: str) -> str:
     Auth-Redirect, solange die App nicht wirklich public ist. Verwende stattdessen
     `github_pages_stage_url()` für die produktive TTLS-Browserquelle.
     """
-    query: dict[str, str] = {"room": safe_profile_id(room_id)}
+    query: dict[str, str] = {"room": safe_profile_id(room_id), "v": str(DEFAULTS_VERSION)}
     query.update({key: value for key, value in params.items() if value})
     encoded = "&".join(f"{key}={value}" for key, value in query.items())
     return f"{base_url.rstrip('/')}/app/static/{STATIC_STAGE_FILE.name}?{encoded}"
@@ -1174,7 +1175,7 @@ def github_pages_stage_url(
     GitHub-Gist (Raw-URL) für State-Updates aus dem Regiepult.
     """
     room = safe_profile_id(room_id or st.session_state.get("overlay_room_id", "default") or "default")
-    query: dict[str, str] = {"room": room}
+    query: dict[str, str] = {"room": room, "v": str(DEFAULTS_VERSION)}
     if gist_id:
         query["gist"] = gist_id
     if gist_user:
@@ -1241,6 +1242,7 @@ def reset_stage_to_safe_defaults() -> None:
     st.session_state.show_background = True
     st.session_state.show_overlay_frame = True
     st.session_state.show_animations = True
+    st.session_state.show_motion_layers = True
     st.session_state.clear_overlay = False
     st.session_state.minimal_mode = False
     st.session_state.focus_mode = False
@@ -2425,6 +2427,7 @@ def current_overlay_state() -> dict[str, Any]:
     with rt.lock:
         live_started_at = rt.started_at
     live_duration = format_duration(time.time() - live_started_at) if live_started_at else "00:00:00"
+    live_since_time = time.strftime("%H:%M:%S", time.localtime(live_started_at)) if live_started_at else "--:--:--"
     # Theme-Farben mit reinschreiben. WICHTIG: Wir nehmen das aktuell
     # gewählte Theme aus THEMES[layout] und MERGEN es kompromisslos in den
     # State — auch wenn snapshot_scene() ältere Werte aus Backups
@@ -2446,6 +2449,7 @@ def current_overlay_state() -> dict[str, Any]:
             "filtered_top": st.session_state.filtered_top,
             "live_started_at": live_started_at,
             "live_duration": live_duration,
+            "live_since_time": live_since_time,
             "sentiment": chat_sentiment_state(),
             "bg": theme.get("bg") or "#050608",
             "panel": theme.get("panel") or "rgba(8,10,16,.62)",
@@ -2689,7 +2693,7 @@ def render_stage(state: dict[str, Any], height: int = 860) -> None:
     ist reine Anzeige.
     """
     room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
-    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}"
+    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&v={DEFAULTS_VERSION}"
     iframe_html = (
         '<!doctype html><html><head><meta charset="utf-8"><style>'
         'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'
@@ -2712,7 +2716,7 @@ def render_static_overlay_redirect() -> None:
     }
     # Relativer Redirect-Target auf den lokalen Static-Pfad (nur lokal sinnvoll;
     # Cloud-Nutzer sollten direkt die GitHub-Pages-URL nutzen).
-    query: dict[str, str] = {"room": room}
+    query: dict[str, str] = {"room": room, "v": str(DEFAULTS_VERSION)}
     query.update({k: v for k, v in params.items() if v})
     encoded = "&".join(f"{k}={v}" for k, v in query.items())
     target = f"./app/static/{STATIC_STAGE_FILE.name}?{encoded}"

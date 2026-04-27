@@ -18,7 +18,7 @@
   --accent2: #29f3ff;
   --accent3: #f8ff4d;
   --glow: rgba(255,79,216,.30);
-  --dim: .22;
+  --dim: .12;
   --topicFont: Inter, system-ui, sans-serif;
   --keywordFont: Inter, system-ui, sans-serif;
   --highlightFont: Inter, system-ui, sans-serif;
@@ -40,7 +40,7 @@
   --bgPosY: 50%;
   --bgZoom: 1;
   --bgBlur: 0px;
-  --bgBrightness: 1;
+  --bgBrightness: 1.15;
   --bgOpacity: 1;
   --motionOpacity: .42;
   --motionSpeed: 1;
@@ -78,8 +78,10 @@ body.transparent .veil { background: transparent; display: none; }
   max-width: 100vw;
   overflow: hidden;
   background:
-    radial-gradient(circle at 75% 18%, var(--glow), transparent 30%),
-    radial-gradient(circle at 12% 78%, rgba(41,243,255,.18), transparent 36%),
+    radial-gradient(circle at 72% 18%, var(--glow), transparent 34%),
+    radial-gradient(circle at 18% 78%, rgba(45,252,255,.24), transparent 38%),
+    radial-gradient(circle at 52% 42%, rgba(255,61,242,.16), transparent 32%),
+    linear-gradient(145deg, rgba(255,255,255,.045), rgba(0,0,0,.10)),
     var(--bg);
   isolation: isolate;
   opacity: var(--overlayOpacity);
@@ -103,8 +105,8 @@ body.transparent .veil { background: transparent; display: none; }
 .veil {
   position: absolute; inset: 0; z-index: -3; pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(0,0,0,var(--dim)), rgba(0,0,0,.06) 60%, rgba(0,0,0,.02)),
-    linear-gradient(180deg, rgba(0,0,0,.06), rgba(0,0,0,var(--dim)));
+    linear-gradient(90deg, rgba(0,0,0,var(--dim)), rgba(0,0,0,.035) 60%, rgba(0,0,0,.01)),
+    linear-gradient(180deg, rgba(0,0,0,.035), rgba(0,0,0,var(--dim)));
 }
 .grain {
   position: absolute; inset: 0; z-index: -2; pointer-events: none;

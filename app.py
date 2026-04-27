@@ -68,7 +68,7 @@ KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
 MIN_WORD_LENGTH = 3
 DEFAULT_ASPECT = "9:16"
-DEFAULTS_VERSION = 4
+DEFAULTS_VERSION = 5
 AI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -796,8 +796,8 @@ def init_state() -> None:
         "countdown_running": False,
         "countdown_started_at": None,
         "show_live_since": True,
-        "layout": "Editorial Dark",
-        "cloud_style": "Magazine Cloud",
+        "layout": "Neon Pop",
+        "cloud_style": "Color Burst",
         "cloud_style_locked": False,
         "aspect": DEFAULT_ASPECT,
         "show_topic": True,
@@ -813,9 +813,9 @@ def init_state() -> None:
         "freeze_keywords": False,
         "focus_mode": False,
         "clear_overlay": False,
-        "bg_dim": 22,
+        "bg_dim": 12,
         "bg_blur": 0,
-        "bg_brightness": 110,
+        "bg_brightness": 125,
         "keyword_size": 50,
         "keyword_density": 38,
         "animation_intensity": 55,
@@ -1028,9 +1028,9 @@ def snapshot_scene() -> dict[str, Any]:
 
 
 def apply_visual_defaults_v3() -> None:
-    """Legacy migration helper, jetzt v4. Setzt sanfte, neutrale Default-Optik."""
-    st.session_state.layout = "Editorial Dark"
-    st.session_state.cloud_style = "Magazine Cloud"
+    """Legacy migration helper, jetzt v5. Setzt den aktuellen Regie-Default."""
+    st.session_state.layout = "Neon Pop"
+    st.session_state.cloud_style = "Color Burst"
     st.session_state.show_highlight = False
     st.session_state.auto_highlight = False
     st.session_state.keyword_size = min(int(st.session_state.get("keyword_size", 50) or 50), 55)
@@ -1039,12 +1039,12 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.cloud_pos_y = 55
     st.session_state.cloud_width = min(int(st.session_state.get("cloud_width", 60) or 60), 64)
     st.session_state.cloud_height = min(int(st.session_state.get("cloud_height", 58) or 58), 60)
-    st.session_state.topic_font_family = "Playfair Display"
+    st.session_state.topic_font_family = "Poppins"
     st.session_state.keyword_font_family = "Inter"
     st.session_state.motion_effects = ["Aerosol-Wolken"]
     st.session_state.motion_opacity = 30
-    st.session_state.bg_dim = 22
-    st.session_state.bg_brightness = max(110, int(st.session_state.get("bg_brightness", 115) or 115))
+    st.session_state.bg_dim = min(18, int(st.session_state.get("bg_dim", 18) or 18))
+    st.session_state.bg_brightness = max(125, int(st.session_state.get("bg_brightness", 125) or 125))
     st.session_state.show_clock = True
     st.session_state.show_overlay_frame = False
     st.session_state.defaults_version = DEFAULTS_VERSION
@@ -1214,8 +1214,10 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.ai_response = ""
         st.session_state.show_ai_card = False
     st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
-    if not any(st.session_state.get(key) for key in ("show_topic", "show_cloud", "show_highlight", "show_countdown", "show_clock", "show_website", "show_video", "show_pdf", "show_ai_card")):
-        reset_stage_to_safe_defaults()
+    # Wichtig: Ein gespeicherter Zustand mit allen Elementen aus ist kein
+    # kaputter State, sondern ein legitimer Live-Cue ("Hide All" / "Clear").
+    # Frueher wurden hier Safe-Defaults erzwungen; dadurch sprang das Thema
+    # nach dem Ausschalten scheinbar von selbst wieder auf die Buehne.
     if not payload.get("user_adjusted_cloud_position"):
         st.session_state.cloud_pos_x = 50
         st.session_state.cloud_pos_y = 50
@@ -1259,7 +1261,7 @@ def reset_stage_to_safe_defaults() -> None:
     st.session_state.topic_y = 18
     st.session_state.topic_width = 68
     st.session_state.topic_height = 24
-    st.session_state.bg_dim = 18
+    st.session_state.bg_dim = 12
     st.session_state.bg_blur = 0
     st.session_state.bg_brightness = 125
     st.session_state.bg_opacity = 100

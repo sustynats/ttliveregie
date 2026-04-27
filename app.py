@@ -1535,6 +1535,14 @@ def store_generated_background(data: bytes | str, mime_type: str = "image/png", 
     data_url = f"data:{mime_type or 'image/png'};base64,{encoded}"
     image_id = hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
     title = f"KI-Bild {time.strftime('%H:%M:%S')}"
+    for item in st.session_state.images:
+        if item.get("id") == image_id or item.get("data_url") == data_url:
+            st.session_state.active_image_id = item.get("id", image_id)
+            set_background_visible(True)
+            st.session_state.bg_brightness = 118
+            st.session_state.bg_dim = 24
+            st.session_state.image_generation_error = ""
+            return f"Vorhandenes Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} wieder aktiviert."
     st.session_state.images.append({"id": image_id, "name": title, "title": title, "data_url": data_url})
     st.session_state.active_image_id = image_id
     set_background_visible(True)
@@ -1542,6 +1550,44 @@ def store_generated_background(data: bytes | str, mime_type: str = "image/png", 
     st.session_state.bg_dim = 24
     st.session_state.image_generation_error = ""
     return f"Hintergrundbild mit {IMAGE_MODEL_LABELS.get(model, model)} generiert und aktiviert."
+
+
+def normalize_image_library() -> None:
+    images = st.session_state.get("images", [])
+    if not isinstance(images, list):
+        st.session_state.images = []
+        st.session_state.active_image_id = None
+        return
+    normalized: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_data: set[str] = set()
+    active_id = st.session_state.get("active_image_id")
+    active_data = ""
+    for item in images:
+        if isinstance(item, dict) and item.get("id") == active_id:
+            active_data = item.get("data_url", "")
+            break
+    for index, item in enumerate(images):
+        if not isinstance(item, dict):
+            continue
+        data_url = str(item.get("data_url", "") or "")
+        if not data_url or data_url in seen_data:
+            continue
+        raw_id = str(item.get("id", "") or hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12])
+        image_id = re.sub(r"[^a-zA-Z0-9_-]", "", raw_id)[:48] or hashlib.sha1(data_url.encode("utf-8")).hexdigest()[:12]
+        if image_id in seen_ids:
+            image_id = f"{hashlib.sha1((data_url + str(index)).encode('utf-8')).hexdigest()[:12]}_{index}"
+        seen_ids.add(image_id)
+        seen_data.add(data_url)
+        item = dict(item)
+        item["id"] = image_id
+        item.setdefault("name", item.get("title", "Bild"))
+        item.setdefault("title", item.get("name", "Bild"))
+        normalized.append(item)
+    st.session_state.images = normalized
+    if active_id and not any(item.get("id") == active_id for item in normalized):
+        replacement = next((item.get("id") for item in normalized if active_data and item.get("data_url") == active_data), None)
+        st.session_state.active_image_id = replacement
 
 
 def create_local_prompt_background(prompt: str, errors: list[str] | None = None) -> str:
@@ -2962,6 +3008,7 @@ def render_layout_panel() -> None:
 
 def render_image_panel() -> None:
     section("Bild-Manager")
+    normalize_image_library()
     st.session_state.image_prompt = st.text_area(
         "KI-Hintergrund-Prompt",
         value=st.session_state.image_prompt,
@@ -2998,10 +3045,10 @@ def render_image_panel() -> None:
                     st.session_state.active_image_id = image_id
 
     if st.session_state.images:
-        for item in list(st.session_state.images):
+        for idx, item in enumerate(list(st.session_state.images)):
             cols = st.columns([1, 1, 1])
             cols[0].image(item["data_url"], use_container_width=True)
-            new_title = cols[0].text_input("Titel", value=item.get("title", item.get("name", "Bild")), key=f"img_title_{item['id']}", label_visibility="collapsed")
+            new_title = cols[0].text_input("Titel", value=item.get("title", item.get("name", "Bild")), key=f"img_title_{item['id']}_{idx}", label_visibility="collapsed")
             item["title"] = new_title
             cols[1].button(
                 ("Aktiv" if item["id"] == st.session_state.active_image_id else "Aktivieren"),

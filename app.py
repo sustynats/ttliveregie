@@ -2530,7 +2530,10 @@ def push_state_to_gist_if_due(serialized_state: str) -> None:
 
     Throttle: max. 1 Push pro 2 Sekunden. Pläne fürs nächste Push-Fenster werden
     in `st.session_state.gist_pending` gehalten und beim nächsten Streamlit-Rerun
-    nachgeholt.
+    nachgeholt. Beim nächsten Rerun (z.B. ausgelöst durch Slider, Toggle oder den
+    leichten Auto-Refresh) checken wir ZUERST, ob pending vorliegt und das
+    Throttle-Fenster geöffnet hat — sonst gehen Layout-Änderungen verloren, die
+    direkt nach einem 200-OK-Push reinkommen.
     """
     token = _gist_token()
     gist_id = _gist_id()
@@ -2538,9 +2541,17 @@ def push_state_to_gist_if_due(serialized_state: str) -> None:
         return  # Sync nicht konfiguriert — still ignorieren
     now = time.time()
     last = float(st.session_state.get("gist_last_push_at", 0.0))
+    pending = st.session_state.get("gist_pending")
+    # Falls ein pending-State älter ist als der aktuelle, überschreiben wir ihn
+    # mit dem aktuellen — wir wollen am Ende immer den letzten Stand pushen.
     if now - last < 2.0:
         st.session_state["gist_pending"] = serialized_state
         return
+    # Throttle ist offen. Pending hat Vorrang — aber der aktuelle Aufruf
+    # überschreibt es ja, also pushen wir gleich serialized_state und löschen
+    # pending. (Äquivalent: serialized_state IST der neueste Stand.)
+    if pending is not None:
+        st.session_state.pop("gist_pending", None)
     _push_state_to_gist_now(serialized_state, token, gist_id)
 
 
@@ -3778,9 +3789,16 @@ def main() -> None:
     rt = live_runtime()
     live_active = bool(rt.thread and rt.thread.is_alive() and rt.status in {"connected", "connecting"})
     countdown_active = bool(st.session_state.get("countdown_running"))
+    has_pending_gist = bool(st.session_state.get("gist_pending"))
     if live_active or countdown_active:
         # Live-Betrieb: 5s reichen für Chat-Drain & Countdown-Tick.
         st_autorefresh(interval=5000, key="refresh")
+    elif has_pending_gist:
+        # Idle, aber ein Gist-Push ist gequeued (Throttle griff). Kurzer
+        # Refresh, damit der pending-State noch in den Gist landet —
+        # andernfalls verschluckt das Throttle-Fenster Layout-Änderungen,
+        # die direkt nach einem OK-Push reinkommen.
+        st_autorefresh(interval=2500, key="refresh_gist_drain", limit=2)
     update_countdown()
 
     drain_live_comments()

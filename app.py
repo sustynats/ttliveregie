@@ -794,6 +794,7 @@ def init_state() -> None:
         "freeze_keywords": False,
         "focus_mode": False,
         "clear_overlay": False,
+        "stage_edit_mode": True,
         "bg_dim": 25,
         "bg_blur": 0,
         "bg_brightness": 115,
@@ -811,6 +812,26 @@ def init_state() -> None:
         "cloud_width": 58,
         "cloud_height": 58,
         "cloud_tilt": 0,
+        "topic_x": 36,
+        "topic_y": 18,
+        "topic_width": 68,
+        "topic_height": 24,
+        "highlight_x": 35,
+        "highlight_y": 43,
+        "highlight_width": 62,
+        "highlight_height": 18,
+        "countdown_x": 24,
+        "countdown_y": 82,
+        "countdown_width": 32,
+        "countdown_height": 12,
+        "clock_x": 82,
+        "clock_y": 12,
+        "clock_width": 24,
+        "clock_height": 9,
+        "ai_x": 36,
+        "ai_y": 70,
+        "ai_width": 58,
+        "ai_height": 26,
         "topic_text_size": 100,
         "highlight_text_size": 100,
         "countdown_text_size": 100,
@@ -961,7 +982,13 @@ def snapshot_scene() -> dict[str, Any]:
         "bg_pos_x", "bg_pos_y", "bg_fit", "keyword_size", "keyword_density", "animation_intensity",
         "motion_effects", "motion_opacity", "motion_speed", "show_heatmap", "heatmap_opacity",
         "show_motion_layers",
-        "cloud_pos_x", "cloud_pos_y", "cloud_width", "cloud_height", "cloud_tilt", "topic_text_size",
+        "cloud_pos_x", "cloud_pos_y", "cloud_width", "cloud_height", "cloud_tilt",
+        "topic_x", "topic_y", "topic_width", "topic_height",
+        "highlight_x", "highlight_y", "highlight_width", "highlight_height",
+        "countdown_x", "countdown_y", "countdown_width", "countdown_height",
+        "clock_x", "clock_y", "clock_width", "clock_height",
+        "ai_x", "ai_y", "ai_width", "ai_height",
+        "topic_text_size",
         "highlight_text_size", "countdown_text_size", "clock_text_size", "topic_font_family", "topic_font_weight",
         "topic_letter_spacing", "topic_text_transform", "keyword_font_family", "keyword_font_weight",
         "keyword_random_weight", "highlight_font_family", "highlight_font_weight", "highlight_letter_spacing",
@@ -1293,6 +1320,69 @@ def brighten_stage() -> None:
     st.session_state.clear_overlay = False
     set_background_visible(True)
     st.session_state.user_adjusted_image_look = True
+
+
+def apply_stage_editor_params() -> None:
+    target = st.query_params.get("stage_edit_target", "")
+    if target not in {"topic", "highlight", "cloud", "countdown", "clock", "video", "website", "pdf", "ai"}:
+        return
+    try:
+        x = float(st.query_params.get("stage_edit_x", ""))
+        y = float(st.query_params.get("stage_edit_y", ""))
+        w = float(st.query_params.get("stage_edit_w", ""))
+        h = float(st.query_params.get("stage_edit_h", ""))
+    except (TypeError, ValueError):
+        return
+    x = max(0, min(100, x))
+    y = max(0, min(100, y))
+    w = max(5, min(100, w))
+    h = max(5, min(100, h))
+    if target == "topic":
+        st.session_state.topic_x = int(round(x))
+        st.session_state.topic_y = int(round(y))
+        st.session_state.topic_width = int(round(max(18, w)))
+        st.session_state.topic_height = int(round(max(8, h)))
+    elif target == "highlight":
+        st.session_state.highlight_x = int(round(x))
+        st.session_state.highlight_y = int(round(y))
+        st.session_state.highlight_width = int(round(max(16, w)))
+        st.session_state.highlight_height = int(round(max(8, h)))
+    elif target == "cloud":
+        st.session_state.cloud_pos_x = int(round(x))
+        st.session_state.cloud_pos_y = int(round(y))
+        st.session_state.cloud_width = int(round(max(35, w)))
+        st.session_state.cloud_height = int(round(max(35, h)))
+        st.session_state.user_adjusted_cloud_position = True
+    elif target == "countdown":
+        st.session_state.countdown_x = int(round(x))
+        st.session_state.countdown_y = int(round(y))
+        st.session_state.countdown_width = int(round(max(18, w)))
+        st.session_state.countdown_height = int(round(max(8, h)))
+    elif target == "clock":
+        st.session_state.clock_x = int(round(x))
+        st.session_state.clock_y = int(round(y))
+        st.session_state.clock_width = int(round(max(12, w)))
+        st.session_state.clock_height = int(round(max(6, h)))
+    elif target == "video":
+        st.session_state.video_x = int(round(x))
+        st.session_state.video_y = int(round(y))
+        st.session_state.video_width = int(round(max(15, w)))
+        st.session_state.video_height = int(round(max(10, h)))
+    elif target == "website":
+        st.session_state.website_x = int(round(x))
+        st.session_state.website_y = int(round(y))
+        st.session_state.website_width = int(round(max(20, w)))
+        st.session_state.website_height = int(round(max(15, h)))
+    elif target == "pdf":
+        st.session_state.pdf_x = int(round(x))
+        st.session_state.pdf_y = int(round(y))
+        st.session_state.pdf_width = int(round(max(20, w)))
+        st.session_state.pdf_height = int(round(max(20, h)))
+    elif target == "ai":
+        st.session_state.ai_x = int(round(x))
+        st.session_state.ai_y = int(round(y))
+        st.session_state.ai_width = int(round(max(20, w)))
+        st.session_state.ai_height = int(round(max(12, h)))
 
 
 def google_api_key() -> str:
@@ -2112,17 +2202,23 @@ def render_overlay_html(state: dict[str, Any]) -> str:
         )
 
     hidden = state.get("clear_overlay")
-    topic_html = "" if hidden or not state.get("show_topic") else f'<div class="topic">{topic}</div>'
-    highlight_html = "" if hidden or not state.get("show_highlight") or not highlight else f'<div class="highlight">{highlight}</div>'
+    topic_html = "" if hidden or not state.get("show_topic") else (
+        f'<div class="topic" style="--tx:{state.get("topic_x",36)}%;--ty:{state.get("topic_y",18)}%;--tw:{state.get("topic_width",68)}%;--th:{state.get("topic_height",24)}%">{topic}</div>'
+    )
+    highlight_html = "" if hidden or not state.get("show_highlight") or not highlight else (
+        f'<div class="highlight" style="--hx:{state.get("highlight_x",35)}%;--hy:{state.get("highlight_y",43)}%;--hw:{state.get("highlight_width",62)}%;--hh:{state.get("highlight_height",18)}%">{highlight}</div>'
+    )
     cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud cloud-{cloud_slug}">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
     live_since = ""
     if state.get("show_live_since"):
         live_since = f'<span>Live seit {live_since_time}</span>'
-    clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock"><b>LIVE {live_duration_text}</b>{live_since}</div>'
+    clock_html = "" if hidden or not state.get("show_clock") else (
+        f'<div class="live-clock" style="--lx:{state.get("clock_x",82)}%;--ly:{state.get("clock_y",12)}%;--lw:{state.get("clock_width",24)}%;--lh:{state.get("clock_height",9)}%"><b>LIVE {live_duration_text}</b>{live_since}</div>'
+    )
     countdown_html = ""
     if not hidden and state.get("show_countdown"):
         countdown_html = (
-            f'<div class="countdown">'
+            f'<div class="countdown" style="--cx:{state.get("countdown_x",24)}%;--cy:{state.get("countdown_y",82)}%;--cw:{state.get("countdown_width",32)}%;--ch:{state.get("countdown_height",12)}%">'
             f'<div class="ring" style="--pct:{countdown_pct:.1f}"></div>'
             f'<div><b>{html.escape(state.get("countdown_title") or "")}</b><span>{mins:02d}:{secs:02d}</span></div>'
             f'</div>'
@@ -2212,7 +2308,34 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     if not hidden and state.get("show_ai_card") and state.get("ai_response"):
         ai_text = state.get("ai_response", "")
         if not is_ai_error_text(ai_text):
-            ai_html = f'<div class="ai-card"><b>KI-Check</b><p>{html.escape(ai_text)}</p></div>'
+            ai_html = (
+                f'<div class="ai-card" style="--ax:{state.get("ai_x",36)}%;--ay:{state.get("ai_y",70)}%;--aw:{state.get("ai_width",58)}%;--ah:{state.get("ai_height",26)}%">'
+                f'<b>KI-Check</b><p>{html.escape(ai_text)}</p></div>'
+            )
+
+    editor_html = ""
+    if state.get("stage_edit_mode") and not hidden:
+        boxes: list[str] = []
+        if state.get("show_topic"):
+            boxes.append(f'<div class="editor-box" data-target="topic" style="--ex:{state.get("topic_x",36)}%;--ey:{state.get("topic_y",18)}%;--ew:{state.get("topic_width",68)}%;--eh:{state.get("topic_height",24)}%"><span>Thema</span><i></i></div>')
+        if state.get("show_highlight") and highlight:
+            boxes.append(f'<div class="editor-box" data-target="highlight" style="--ex:{state.get("highlight_x",35)}%;--ey:{state.get("highlight_y",43)}%;--ew:{state.get("highlight_width",62)}%;--eh:{state.get("highlight_height",18)}%"><span>Highlight</span><i></i></div>')
+        if state.get("show_cloud"):
+            boxes.append(f'<div class="editor-box" data-target="cloud" style="--ex:{cloud_x}%;--ey:{cloud_y}%;--ew:{cloud_w}%;--eh:{cloud_h}%"><span>Cloud</span><i></i></div>')
+        if state.get("show_countdown"):
+            boxes.append(f'<div class="editor-box" data-target="countdown" style="--ex:{state.get("countdown_x",24)}%;--ey:{state.get("countdown_y",82)}%;--ew:{state.get("countdown_width",32)}%;--eh:{state.get("countdown_height",12)}%"><span>Countdown</span><i></i></div>')
+        if state.get("show_clock"):
+            boxes.append(f'<div class="editor-box" data-target="clock" style="--ex:{state.get("clock_x",82)}%;--ey:{state.get("clock_y",12)}%;--ew:{state.get("clock_width",24)}%;--eh:{state.get("clock_height",9)}%"><span>Live-Uhr</span><i></i></div>')
+        if show_video:
+            boxes.append(f'<div class="editor-box" data-target="video" style="--ex:{state.get("video_x",50)}%;--ey:{state.get("video_y",54)}%;--ew:{state.get("video_width",70)}%;--eh:{state.get("video_height",40)}%"><span>Video</span><i></i></div>')
+        if state.get("show_website") and state.get("website_url"):
+            boxes.append(f'<div class="editor-box" data-target="website" style="--ex:{state.get("website_x",50)}%;--ey:{state.get("website_y",54)}%;--ew:{state.get("website_width",76)}%;--eh:{state.get("website_height",58)}%"><span>Website</span><i></i></div>')
+        if state.get("show_pdf") and state.get("pdf_data"):
+            boxes.append(f'<div class="editor-box" data-target="pdf" style="--ex:{state.get("pdf_x",50)}%;--ey:{state.get("pdf_y",54)}%;--ew:{state.get("pdf_width",76)}%;--eh:{state.get("pdf_height",72)}%"><span>PDF</span><i></i></div>')
+        if state.get("show_ai_card") and state.get("ai_response") and not is_ai_error_text(state.get("ai_response", "")):
+            boxes.append(f'<div class="editor-box" data-target="ai" style="--ex:{state.get("ai_x",36)}%;--ey:{state.get("ai_y",70)}%;--ew:{state.get("ai_width",58)}%;--eh:{state.get("ai_height",26)}%"><span>KI-Karte</span><i></i></div>')
+        if boxes:
+            editor_html = f'<div class="stage-editor">{"".join(boxes)}<div class="editor-hint">Ziehen = platzieren · Ecke = skalieren</div></div>'
 
     frame_cls = " framed" if state.get("show_overlay_frame", True) else ""
     anim_cls = " animated" if anim_enabled else ""
@@ -2311,14 +2434,16 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .heatmap.neutral {{ background:radial-gradient(circle at 38% 38%, rgba(255,255,255,.20), transparent 34%), radial-gradient(circle at 74% 58%, rgba(120,160,255,.18), transparent 32%); }}
     .heatmap span {{ position:absolute; left:7%; bottom:14%; font-size:12px; font-weight:900; text-transform:uppercase; color:rgba(255,255,255,.72); }}
     .topic {{
-      position:absolute; top:7%; left:7%; width:68%; font-weight:850; line-height:.98;
+      position:absolute; left:var(--tx); top:var(--ty); width:var(--tw); min-height:var(--th); transform:translate(-50%,-50%);
+      font-weight:850; line-height:.98;
       font-family:var(--topicFont); font-weight:var(--topicWeight);
       font-size:calc(clamp(36px, 7.4vw, 74px) * var(--topicSize)); letter-spacing:var(--topicSpacing); text-transform:var(--topicTransform);
       text-wrap:balance; text-shadow:0 8px 28px rgba(0,0,0,.38);
     }}
     .topic::after {{ content:""; display:block; width:72px; height:3px; margin-top:18px; background:var(--accent); border-radius:3px; box-shadow:0 0 24px var(--glow); }}
     .highlight {{
-      position:absolute; left:8%; top:36%; max-width:62%; padding:.18em .32em .26em;
+      position:absolute; left:var(--hx); top:var(--hy); width:var(--hw); min-height:var(--hh); transform:translate(-50%,-50%);
+      padding:.18em .32em .26em;
       font-family:var(--highlightFont); font-size:calc(clamp(42px, 9vw, 96px) * var(--highlightSize)); font-weight:var(--highlightWeight); letter-spacing:var(--highlightSpacing); line-height:.9; color:var(--text);
       background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
       border-left:4px solid var(--accent); text-shadow:0 0 30px var(--glow), 0 12px 28px rgba(0,0,0,.32);
@@ -2351,7 +2476,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .map-lines {{ position:absolute; inset:0; opacity:.42; }}
     .map-lines line {{ stroke:var(--accent); stroke-width:.22; vector-effect:non-scaling-stroke; }}
     .countdown {{
-      position:absolute; left:7%; bottom:18%; min-width:220px; display:flex; align-items:center; gap:14px;
+      position:absolute; left:var(--cx); top:var(--cy); width:var(--cw); min-height:var(--ch); transform:translate(-50%,-50%);
+      min-width:160px; display:flex; align-items:center; gap:14px;
       padding:14px 16px; border:1px solid color-mix(in srgb, var(--accent) 32%, transparent);
       background:var(--panel); backdrop-filter:blur(14px); border-radius:8px;
     }}
@@ -2364,7 +2490,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .ring::after {{ content:""; position:absolute; inset:7px; border-radius:50%; background:var(--bg); }}
     .live-clock {{
-      position:absolute; top:7%; right:8%; padding:9px 12px; border-radius:999px;
+      position:absolute; left:var(--lx); top:var(--ly); width:var(--lw); min-height:var(--lh); transform:translate(-50%,-50%);
+      padding:9px 12px; border-radius:999px;
       display:flex; flex-direction:column; gap:1px; font-family:var(--countdownFont); font-weight:800; font-size:calc(14px * var(--clockSize)); color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
     }}
     .live-clock span, .live-clock small {{ font-size:.76em; color:var(--muted); line-height:1.08; }}
@@ -2406,12 +2533,32 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap; pointer-events:none;
     }}
     .ai-card {{
-      position:absolute; left:7%; right:34%; bottom:20%; z-index:6; padding:18px 20px;
+      position:absolute; left:var(--ax); top:var(--ay); width:var(--aw); height:var(--ah); transform:translate(-50%,-50%);
+      z-index:6; padding:18px 20px; overflow:hidden;
       border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
       backdrop-filter:blur(16px); box-shadow:0 18px 48px rgba(0,0,0,.34);
     }}
     .ai-card b {{ display:block; font-family:var(--countdownFont); color:var(--accent); margin-bottom:8px; }}
     .ai-card p {{ margin:0; white-space:pre-wrap; font-size:clamp(11px, 1.22vw, 18px); line-height:1.24; }}
+    .stage-editor {{ position:absolute; inset:0; z-index:30; pointer-events:none; }}
+    .editor-box {{
+      position:absolute; left:var(--ex); top:var(--ey); width:var(--ew); height:var(--eh);
+      transform:translate(-50%,-50%); border:2px solid #ff2f65; background:rgba(255,47,101,.045);
+      box-shadow:0 0 0 1px rgba(255,255,255,.28), 0 0 28px rgba(255,47,101,.28);
+      border-radius:6px; pointer-events:auto; cursor:move; touch-action:none;
+    }}
+    .editor-box span {{
+      position:absolute; left:8px; top:7px; padding:4px 8px; border-radius:999px;
+      background:rgba(0,0,0,.75); color:#fff; font:900 11px/1 system-ui, sans-serif;
+    }}
+    .editor-box i {{
+      position:absolute; right:-7px; bottom:-7px; width:18px; height:18px; border-radius:4px;
+      background:#ff2f65; border:2px solid #fff; cursor:nwse-resize;
+    }}
+    .editor-hint {{
+      position:absolute; left:10px; bottom:10px; padding:7px 10px; border-radius:999px;
+      background:rgba(0,0,0,.68); color:#fff; font:800 12px/1 system-ui, sans-serif;
+    }}
     @keyframes floaty {{
       0%,100% {{ transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s)); opacity:.82; }}
       50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity:1; }}
@@ -2426,7 +2573,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     @keyframes pulse {{ 0%,100% {{ transform:scale(.96); opacity:.5; }} 50% {{ transform:scale(1.05); opacity:1; }} }}
     @media (max-width: 740px) {{
       .stage-wrap {{ padding:4px; }}
-      .topic {{ width:74%; font-size:calc(clamp(30px, 12vw, 58px) * var(--topicSize)); }}
+      .topic {{ font-size:calc(clamp(30px, 12vw, 58px) * var(--topicSize)); }}
       .highlight {{ font-size:calc(clamp(38px, 13vw, 74px) * var(--highlightSize)); }}
       .kw {{ font-size:clamp(11px, 4.2vw, 20px); }}
     }}
@@ -2449,9 +2596,78 @@ def render_overlay_html(state: dict[str, Any]) -> str:
           {cloud_html}
           {countdown_html}
           {ai_html}
+          {editor_html}
           {safe_html}
         </main>
       </div>
+      <script>
+      (() => {{
+        const stage = document.querySelector(".stage");
+        if (!stage) return;
+        function pct(value, total) {{ return Math.max(0, Math.min(100, value / Math.max(1, total) * 100)); }}
+        function commit(target, rect) {{
+          const stageRect = stage.getBoundingClientRect();
+          const x = pct(rect.left + rect.width / 2 - stageRect.left, stageRect.width);
+          const y = pct(rect.top + rect.height / 2 - stageRect.top, stageRect.height);
+          const w = pct(rect.width, stageRect.width);
+          const h = pct(rect.height, stageRect.height);
+          const url = new URL(window.parent.location.href);
+          url.searchParams.set("stage_edit_target", target);
+          url.searchParams.set("stage_edit_x", x.toFixed(1));
+          url.searchParams.set("stage_edit_y", y.toFixed(1));
+          url.searchParams.set("stage_edit_w", w.toFixed(1));
+          url.searchParams.set("stage_edit_h", h.toFixed(1));
+          window.parent.location.href = url.toString();
+        }}
+        document.querySelectorAll(".editor-box").forEach((box) => {{
+          let start = null;
+          box.addEventListener("pointerdown", (event) => {{
+            event.preventDefault();
+            box.setPointerCapture(event.pointerId);
+            const stageRect = stage.getBoundingClientRect();
+            const rect = box.getBoundingClientRect();
+            start = {{
+              pointerId: event.pointerId,
+              resize: event.target.tagName.toLowerCase() === "i",
+              x: event.clientX,
+              y: event.clientY,
+              left: rect.left - stageRect.left,
+              top: rect.top - stageRect.top,
+              width: rect.width,
+              height: rect.height,
+              stageRect
+            }};
+          }});
+          box.addEventListener("pointermove", (event) => {{
+            if (!start || event.pointerId !== start.pointerId) return;
+            const dx = event.clientX - start.x;
+            const dy = event.clientY - start.y;
+            let left = start.left;
+            let top = start.top;
+            let width = start.width;
+            let height = start.height;
+            if (start.resize) {{
+              width = Math.max(40, Math.min(start.stageRect.width, start.width + dx));
+              height = Math.max(40, Math.min(start.stageRect.height, start.height + dy));
+            }} else {{
+              left = Math.max(0, Math.min(start.stageRect.width - width, start.left + dx));
+              top = Math.max(0, Math.min(start.stageRect.height - height, start.top + dy));
+            }}
+            box.style.left = `${{pct(left + width / 2, start.stageRect.width)}}%`;
+            box.style.top = `${{pct(top + height / 2, start.stageRect.height)}}%`;
+            box.style.width = `${{pct(width, start.stageRect.width)}}%`;
+            box.style.height = `${{pct(height, start.stageRect.height)}}%`;
+          }});
+          box.addEventListener("pointerup", (event) => {{
+            if (!start || event.pointerId !== start.pointerId) return;
+            const rect = box.getBoundingClientRect();
+            const target = box.dataset.target;
+            start = null;
+            commit(target, rect);
+          }});
+        }});
+      }})();
+      </script>
     </body>
     </html>
     """
@@ -2475,6 +2691,7 @@ def current_overlay_state() -> dict[str, Any]:
             "live_started_at": live_started_at,
             "live_duration": live_duration,
             "sentiment": chat_sentiment_state(),
+            "stage_edit_mode": st.session_state.get("stage_edit_mode", False),
         }
     )
     if st.session_state.auto_highlight and not st.session_state.highlight_word and st.session_state.keywords:
@@ -2484,6 +2701,7 @@ def current_overlay_state() -> dict[str, Any]:
 
 def persist_overlay_state() -> None:
     data = current_overlay_state()
+    data["stage_edit_mode"] = False
     data["updated_at"] = time.time()
     data["room_id"] = st.session_state.overlay_room_id
     data["scenes_count"] = len(st.session_state.get("scenes", {}))
@@ -2649,6 +2867,7 @@ def render_toggle_panel() -> None:
     for key, label in toggles:
         st.toggle(label, key=key)
     st.toggle("Hintergrundbild anzeigen", key="background_visible_control", on_change=sync_background_visibility)
+    st.toggle("Bühne direkt bearbeiten", key="stage_edit_mode")
 
 
 def render_topic_panel() -> None:
@@ -3306,6 +3525,7 @@ def main() -> None:
     else:
         load_persisted_state_once()
         st.markdown(css_for_streamlit(), unsafe_allow_html=True)
+        apply_stage_editor_params()
     video_active = bool(st.session_state.get("show_video") and st.session_state.get("video_url"))
     if overlay_mode or not video_active:
         st_autorefresh(interval=2500 if overlay_mode else 4000, key="refresh")

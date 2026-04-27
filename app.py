@@ -2265,6 +2265,23 @@ def css_for_streamlit() -> str:
     .stApp { background: #0d0f12; color: #f7f2ea; }
     [data-testid="stHeader"] { background: transparent; }
     [data-testid="stSidebar"] { display: none; }
+    /* streamlit_js_eval-Components sind unsichtbar gedacht. Auf Streamlit
+       Cloud bleiben deren Skeleton-Loader (weiße Balken) manchmal hängen,
+       wenn der Component-Bundle nicht zuverlässig lädt. Wir verstecken den
+       gesamten Container, damit nichts durchscheint. */
+    iframe[title^="streamlit_js_eval"],
+    iframe[title*="js_eval"] {
+        display: none !important;
+    }
+    div.element-container:has(> div.stCustomComponentV1 iframe[title*="js_eval"]) {
+        display: none !important;
+    }
+    /* Streamlit-Skeleton-Streifen bei langsamem Component-Load — nur für leere
+       Iframe-Slots (höhe < 16) ausblenden, damit keine weißen Balken bleiben. */
+    div.element-container > div.stCustomComponentV1[data-testid="stCustomComponentV1"]:has(> iframe[height="0"]),
+    div.element-container > div.stCustomComponentV1[data-testid="stCustomComponentV1"]:has(> iframe[src=""]) {
+        display: none !important;
+    }
     .block-container {
         max-width: 100%;
         padding: 1rem 1rem 1.5rem;
@@ -2768,19 +2785,21 @@ def render_stage(state: dict[str, Any], height: int = 860) -> None:
     # — das ist die Ursache des Reload-Loops. Die src darf sich nur ändern,
     # wenn der User aktiv `room` oder `edit` umschaltet. Das Polling im
     # Inneren von stage.html bringt die State-Updates rein.
-    # Embed der Bühne als iframe — nur der lokale Streamlit-Static-Pfad funktioniert
-    # zuverlässig (Cloud-Auth blockiert /app/static/). Die TTLS-Browserquelle nutzt
-    # statt dieses Embeds die GitHub-Pages-URL (siehe primary_browser_source_url).
-    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
-    # Auf Streamlit Cloud zeigen wir hier eine Info statt eines kaputten Frames,
-    # damit die User die GitHub-Pages-URL als TTLS-Quelle nutzen.
     if _is_streamlit_cloud_runtime():
-        st.info(
-            "Bühnen-Vorschau im Cloud-Regiepult ist deaktiviert (Streamlit-Auth "
-            "blockiert den Static-Pfad). Die produktive TikTok-Live-Studio-URL "
-            "oben funktioniert davon unabhängig."
-        )
-        return
+        # Cloud: GitHub-Pages-Bühne einbetten (selbe URL, die TTLS sieht).
+        # Damit zeigt die Regie-Vorschau exakt das Endergebnis.
+        gid = _gist_id(); guser = _gist_user()
+        gist_q = f"&gist={guser}/{gid}" if (gid and guser) else (f"&gist={gid}" if gid else "")
+        src = f"{GITHUB_PAGES_BASE}/stage.html?room={room}&edit={edit}{gist_q}"
+        if not gid:
+            st.info(
+                "Live-Updates der Vorschau brauchen Gist-Sync (Tab Backup → Gist-Sync). "
+                "Aktuell siehst du den Default-State; Änderungen aus der Regie kommen erst durch, "
+                "sobald ein Gist verbunden ist."
+            )
+    else:
+        # Lokal: Streamlit-Static-Pfad (relativ zur App-Origin), kein Gist nötig.
+        src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
     iframe_html = (
         '<!doctype html><html><head><meta charset="utf-8"><style>'
         'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'

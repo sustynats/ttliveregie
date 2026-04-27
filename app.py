@@ -498,7 +498,12 @@ def start_live_connection(unique_id: str) -> None:
     rt.set_status("connecting", f"Verbinde mit {unique_id} ...")
 
     def runner() -> None:
-        async def main() -> None:
+        # Bewährtes Pattern aus dem Schwester-Repo `sustynats/ttlive`: einfach
+        # `TikTokLiveClient(unique_id=...)` + Handler + `client.run()`. Das
+        # `client.start(fetch_room_info=True)` aus dem alten Code holt
+        # Raum-Infos vorab, was bei Lives mit Alters-Restriction-Flag fehl-
+        # schlägt — `run()` macht den Connect ohne diesen Vorab-Fetch.
+        try:
             client = TikTokLiveClient(unique_id=unique_id)
             rt.client = client
 
@@ -523,18 +528,11 @@ def start_live_connection(unique_id: str) -> None:
                 rt.set_status("ended", "Live beendet")
                 rt.events.put("ended")
 
-            try:
-                task = await client.start(fetch_room_info=True)
-                while not rt.stop_event.is_set():
-                    await asyncio.sleep(0.25)
-                await client.disconnect()
-                if task:
-                    task.cancel()
-                rt.set_status("stopped", "Gestoppt")
-            except Exception as exc:
-                rt.set_status("error", f"Verbindung fehlgeschlagen: {exc}")
-
-        asyncio.run(main())
+            client.run()
+        except Exception as exc:
+            # Echten Exception-Text zurückspielen, damit der User im UI
+            # sieht, woran's hängt (statt nur "Verbindung fehlgeschlagen").
+            rt.set_status("error", f"{type(exc).__name__}: {exc}")
 
     rt.thread = threading.Thread(target=runner, daemon=True)
     rt.thread.start()
@@ -544,6 +542,25 @@ def stop_live_connection() -> None:
     rt = live_runtime()
     rt.stop_event.set()
     rt.set_status("stopped", "Stop angefordert")
+    client = rt.client
+    if client is not None:
+        # TikTokLiveClient hat eine eigene Stop-Methode; ruf sie best-effort
+        # auf, damit der run()-Loop sauber endet. Fehler ignorieren — der
+        # Daemon-Thread wird sowieso beim App-Stop aufgeräumt.
+        for attr in ("stop", "disconnect", "close"):
+            stop_fn = getattr(client, attr, None)
+            if callable(stop_fn):
+                try:
+                    result = stop_fn()
+                    if asyncio.iscoroutine(result):
+                        # Sollte aus dem Streamlit-Hauptthread aus möglich sein
+                        try:
+                            asyncio.run(result)
+                        except RuntimeError:
+                            pass
+                    break
+                except Exception:
+                    continue
 
 
 # ---------------------------------------------------------------------------
@@ -1650,6 +1667,7 @@ def apply_stage_editor_params() -> None:
 
 
 def google_api_key() -> str:
+    import os as _os
     for key in ("GOOGLE_API_KEY", "GEMINI_API_KEY"):
         try:
             value = st.secrets.get(key, "")
@@ -1664,6 +1682,11 @@ def google_api_key() -> str:
                 return str(google_section.get(key))
     except Exception:
         pass
+    # Fallback: Environment-Variablen (für lokale Entwicklung ohne Streamlit Secrets)
+    for key in ("GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENAI_API_KEY"):
+        value = _os.environ.get(key, "")
+        if value:
+            return value
     return ""
 
 
@@ -1961,7 +1984,7 @@ def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool,
         return False, "Google GenAI Paket fehlt. Bitte requirements.txt deployen/installieren."
     api_key = google_api_key()
     if not api_key:
-        return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY in Streamlit Secrets gefunden."
+        return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY in Streamlit Secrets gefunden. Lege den Schlüssel in der Streamlit-Cloud unter App-Settings → Secrets ab."
     selected_model = st.session_state.get("image_model", "auto")
     if selected_model not in IMAGE_MODELS:
         selected_model = "auto"
@@ -1974,40 +1997,94 @@ def generate_background_image(prompt: str, use_chat: bool = True) -> tuple[bool,
     errors: list[str] = []
     try:
         client = genai.Client(api_key=api_key)
-        for model in image_generation_models_to_try(selected_model):
-            try:
-                if model.startswith("imagen-"):
-                    config = None
-                    if genai_types is not None:
-                        config = genai_types.GenerateImagesConfig(
-                            number_of_images=1,
-                            aspect_ratio="9:16",
-                            person_generation="dont_allow",
-                        )
-                    response = client.models.generate_images(model=model, prompt=visual_prompt, config=config)
-                    for generated in getattr(response, "generated_images", []) or []:
-                        image_obj = getattr(generated, "image", None)
-                        data = getattr(image_obj, "image_bytes", None) or getattr(image_obj, "imageBytes", None)
-                        if data:
-                            return True, store_generated_background(data, "image/png", model)
-                    errors.append(f"{IMAGE_MODEL_LABELS.get(model, model)}: Google hat kein Bild zurueckgegeben.")
-                    continue
-
-                kwargs: dict[str, Any] = {"model": model, "contents": [visual_prompt]}
-                if model == "gemini-2.0-flash-preview-image-generation" and genai_types is not None:
-                    kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
-                response = client.models.generate_content(**kwargs)
-                image_result = image_from_generate_content_response(response)
-                if image_result:
-                    data, mime_type = image_result
-                    return True, store_generated_background(data, mime_type, model)
-                errors.append(f"{IMAGE_MODEL_LABELS.get(model, model)}: Google hat nur Text oder kein Bild zurueckgegeben.")
-            except Exception as model_exc:
-                errors.append(friendly_image_error(model_exc, model))
-                continue
-        return True, create_local_prompt_background(prompt, errors)
     except Exception as exc:
-        return True, create_local_prompt_background(prompt, [friendly_image_error(exc, selected_model)])
+        st.session_state.image_generation_error = f"genai.Client-Fehler: {type(exc).__name__}: {exc}"
+        return False, st.session_state.image_generation_error
+    for model in image_generation_models_to_try(selected_model):
+        try:
+            if model.startswith("imagen-"):
+                config = None
+                if genai_types is not None:
+                    config = genai_types.GenerateImagesConfig(
+                        number_of_images=1,
+                        aspect_ratio="9:16",
+                        person_generation="dont_allow",
+                    )
+                response = client.models.generate_images(model=model, prompt=visual_prompt, config=config)
+                for generated in getattr(response, "generated_images", []) or []:
+                    image_obj = getattr(generated, "image", None)
+                    data = getattr(image_obj, "image_bytes", None) or getattr(image_obj, "imageBytes", None)
+                    if data:
+                        st.session_state.image_generation_error = ""
+                        return True, store_generated_background(data, "image/png", model)
+                errors.append(f"{IMAGE_MODEL_LABELS.get(model, model)}: Google hat kein Bild zurueckgegeben.")
+                continue
+
+            kwargs: dict[str, Any] = {"model": model, "contents": [visual_prompt]}
+            if model.endswith("image-generation") and genai_types is not None:
+                kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
+            elif model.endswith("flash-image") and genai_types is not None:
+                # gemini-2.5-flash-image / -preview brauchen ebenfalls IMAGE in modalities
+                try:
+                    kwargs["config"] = genai_types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
+                except Exception:
+                    pass
+            response = client.models.generate_content(**kwargs)
+            image_result = image_from_generate_content_response(response)
+            if image_result:
+                data, mime_type = image_result
+                st.session_state.image_generation_error = ""
+                return True, store_generated_background(data, mime_type, model)
+            errors.append(f"{IMAGE_MODEL_LABELS.get(model, model)}: Google hat nur Text oder kein Bild zurueckgegeben.")
+        except Exception as model_exc:
+            err = friendly_image_error(model_exc, model)
+            errors.append(err)
+            # Auch den rohen Exception-String mitloggen
+            errors.append(f"  → raw: {type(model_exc).__name__}: {model_exc}")
+            continue
+    # Kein Modell hat geliefert: Fallback auf lokales SVG, aber Fehler sichtbar machen
+    st.session_state.image_generation_error = "\n".join(errors[:6])
+    fallback_msg = create_local_prompt_background(prompt, errors)
+    return True, fallback_msg + " (Echter Fehler im Caption-Block sichtbar.)"
+
+
+def test_genai_api() -> tuple[bool, str]:
+    """Diagnose-Test: einen kleinen Aufruf an Gemini machen und alles zurückmelden.
+
+    Wird vom UI-Button "API-Test" aufgerufen. Hilft dem User zu sehen, ob
+    der Schlüssel passt und welche Modelle erreichbar sind, ohne dass er
+    erst eine ganze Bildgenerierung durchprobieren muss.
+    """
+    if genai is None:
+        return False, "Google GenAI Paket fehlt im Environment."
+    api_key = google_api_key()
+    if not api_key:
+        return False, "Kein GOOGLE_API_KEY oder GEMINI_API_KEY gefunden (st.secrets / os.environ)."
+    masked = api_key[:4] + "…" + api_key[-3:] if len(api_key) > 8 else "****"
+    lines = [f"API-Key gefunden: {masked} (Länge {len(api_key)})"]
+    try:
+        client = genai.Client(api_key=api_key)
+        lines.append("genai.Client OK")
+    except Exception as exc:
+        return False, "\n".join(lines + [f"Client-Fehler: {type(exc).__name__}: {exc}"])
+    try:
+        text_resp = client.models.generate_content(
+            model=st.session_state.get("ai_model", "gemini-2.5-flash") or "gemini-2.5-flash",
+            contents=["Antworte mit genau dem Wort: PONG"],
+        )
+        text = (getattr(text_resp, "text", "") or "").strip()
+        lines.append(f"Text-Modell antwortet: {text[:80] or '(leer)'}")
+    except Exception as exc:
+        lines.append(f"Text-Modell-Fehler: {type(exc).__name__}: {exc}")
+    try:
+        models = list(client.models.list())
+        lines.append(f"Verfügbare Modelle: {len(models)}")
+        image_capable = [m for m in models if "image" in (getattr(m, "name", "") or "").lower() or "imagen" in (getattr(m, "name", "") or "").lower()]
+        for m in image_capable[:8]:
+            lines.append(f"  · {getattr(m, 'name', '?')}")
+    except Exception as exc:
+        lines.append(f"models.list-Fehler: {type(exc).__name__}: {exc}")
+    return True, "\n".join(lines)
 
 
 def chat_sentiment_state() -> dict[str, Any]:
@@ -2394,601 +2471,6 @@ def css_for_overlay_mode() -> str:
     """
 
 
-def render_overlay_html(state: dict[str, Any]) -> str:
-    layout = state.get("layout", "Editorial Dark")
-    layout = LEGACY_LAYOUT_MAP.get(layout, layout)
-    theme = THEMES.get(layout, THEMES["Editorial Dark"])
-    cloud_style = state.get("cloud_style") or theme.get("cloud_style", "Classic Word Cloud")
-    cloud_slug = {
-        "Bubble Cloud": "bubble",
-        "Magazine Cloud": "magazine",
-        "Network Cloud": "network",
-        "Color Burst": "color",
-        "Minimal Cloud": "minimal",
-        "Orbital Cloud": "orbital",
-        "Vertical Cloud": "vertical",
-    }.get(cloud_style, "classic")
-    keywords = state.get("keywords", [])
-    if state.get("minimal_mode"):
-        keywords = keywords[:0]
-    if state.get("focus_mode"):
-        keywords = keywords[:3]
-    if cloud_style == "Minimal Cloud":
-        keywords = keywords[:10]
-    density = max(4, min(len(keywords), int(MAX_KEYWORDS * state.get("keyword_density", 80) / 100)))
-    keywords = keywords[:density]
-    manual_words = [] if state.get("minimal_mode") else state.get("manual_cloud_words", [])
-    topic = html.escape(state.get("topic") or "")
-    highlight = html.escape(state.get("highlight_word") or "")
-    live_duration_text = html.escape(state.get("live_duration") or "00:00:00")
-    live_started_at = state.get("live_started_at")
-    live_since_time = time.strftime("%H:%M:%S", time.localtime(live_started_at)) if live_started_at else "--:--:--"
-    remaining = int(state.get("countdown_remaining") or 0)
-    total = max(1, int(state.get("countdown_total") or 1))
-    countdown_pct = max(0, min(100, remaining / total * 100))
-    mins, secs = divmod(remaining, 60)
-    safe_zones = state.get("show_safe_zones")
-    show_video = bool(state.get("show_video") and state.get("video_url"))
-    bg_visible_behind_video = state.get("video_show_background", True)
-    bg_url = state.get("active_image_data") if state.get("show_background") and (not show_video or bg_visible_behind_video) else ""
-    aspect = "9 / 16" if state.get("aspect", DEFAULT_ASPECT) == "9:16" else "16 / 9"
-    stage_width = "min(74vh, 100%)" if state.get("aspect", DEFAULT_ASPECT) == "9:16" else "100%"
-    animation_scale = state.get("animation_intensity", 55) / 100
-    anim_enabled = state.get("show_animations", True)
-    overlay_opacity = state.get("overlay_opacity", 100) / 100
-    dim_alpha = max(0, min(0.5, state.get("bg_dim", 25) / 100))
-    motion_opacity = max(0, min(0.8, state.get("motion_opacity", 22) / 100))
-    heat = state.get("sentiment", {"score": 0, "label": "neutral", "intensity": 0.18})
-    heat_score = float(heat.get("score", 0))
-    heat_intensity = float(heat.get("intensity", 0.18))
-    heat_opacity = max(0, min(0.75, state.get("heatmap_opacity", 28) / 100))
-    cloud_w = state.get("cloud_width", 68)
-    cloud_h = state.get("cloud_height", 66)
-    cloud_x = state.get("cloud_pos_x", theme.get("cloud_x", 45))
-    cloud_y = state.get("cloud_pos_y", theme.get("cloud_y", 55))
-    cloud_tilt = state.get("cloud_tilt", 0)
-    topic_size = state.get("topic_text_size", 100) / 100
-    highlight_size = state.get("highlight_text_size", 100) / 100
-    countdown_size = state.get("countdown_text_size", 100) / 100
-    clock_size = state.get("clock_text_size", 100) / 100
-    keyword_size = state.get("keyword_size", 100) / 100
-    manual_size = state.get("manual_word_size", 130) / 100
-    topic_font = font_stack(state.get("topic_font_family", theme.get("font", "Inter")))
-    keyword_font = font_stack(state.get("keyword_font_family", "Inter"))
-    highlight_font = font_stack(state.get("highlight_font_family", theme.get("font", "Inter")))
-    countdown_font = font_stack(state.get("countdown_font_family", "Inter"))
-    topic_weight = int(state.get("topic_font_weight", 850))
-    keyword_weight = int(state.get("keyword_font_weight", 760))
-    highlight_weight = int(state.get("highlight_font_weight", 900))
-    countdown_weight = int(state.get("countdown_font_weight", 850))
-    topic_spacing = state.get("topic_letter_spacing", 0) / 100
-    highlight_spacing = state.get("highlight_letter_spacing", 0) / 100
-    topic_transform = state.get("topic_text_transform", "normal")
-
-    keyword_nodes = []
-    manual_set = set(manual_words)
-    manual_nodes = []
-    for i, word in enumerate(manual_words):
-        x, y, rotation = cloud_style_position(cloud_style, f"manual-{word}", i + 100, max(1, len(manual_words) + len(keywords)))
-        size = (1.45 - min(i, 5) * 0.08) * manual_size
-        delay = (i % 5) * -0.9
-        emph = " manual-emphasis" if state.get("manual_words_emphasis", True) else ""
-        manual_nodes.append(
-            f'<span class="kw manual{emph}" style="--x:{x}%;--y:{y}%;--s:{size:.2f};--r:{rotation:.1f}deg;--d:10.5s;--delay:{delay:.2f}s">{html.escape(word)}</span>'
-        )
-    for i, item in enumerate(keywords):
-        if item["word"] in manual_set:
-            continue
-        word = html.escape(item["word"])
-        size = max(0.72, item.get("size", 1) * keyword_size)
-        x, y, rotation = cloud_style_position(cloud_style, item["word"], i, len(keywords))
-        fresh = " fresh" if item.get("fresh") else ""
-        color_class = f" c{i % 6}"
-        weight = keyword_weight + ((i % 3) * 80 if state.get("keyword_random_weight") else 0)
-        delay = (i % 8) * -0.7
-        duration = 9 + (i % 5) * 1.7 / max(0.4, animation_scale)
-        keyword_nodes.append(
-            f'<span class="kw{fresh}{color_class}" style="--x:{x}%;--y:{y}%;--s:{size:.2f};--r:{rotation:.1f}deg;--w:{weight};--d:{duration:.2f}s;--delay:{delay:.2f}s">{word}</span>'
-        )
-
-    map_lines = ""
-    if cloud_style == "Network Cloud" or theme["key"] == "map":
-        points = [cloud_style_position(cloud_style, item["word"], idx, len(keywords))[:2] for idx, item in enumerate(keywords[:14])]
-        line_nodes = []
-        for idx, (x, y) in enumerate(points):
-            if idx % 2 == 0:
-                line_nodes.append(f'<line x1="48" y1="40" x2="{x}" y2="{y}" />')
-        map_lines = f'<svg class="map-lines" viewBox="0 0 100 100" preserveAspectRatio="none">{"".join(line_nodes)}</svg>'
-
-    bg_style = ""
-    if bg_url:
-        bg_style = (
-            f"background-image:url('{bg_url}');"
-            f"background-size:{state.get('bg_fit','cover')};"
-            f"background-position:{state.get('bg_pos_x',50)}% {state.get('bg_pos_y',50)}%;"
-            f"transform:scale({state.get('bg_zoom',100)/100:.3f});"
-            f"filter:blur({state.get('bg_blur',0)}px) brightness({state.get('bg_brightness',100)}%);"
-            f"opacity:{state.get('bg_opacity',100)/100:.2f};"
-        )
-
-    hidden = state.get("clear_overlay")
-    topic_html = "" if hidden or not state.get("show_topic") else (
-        f'<div class="topic" style="--tx:{state.get("topic_x",36)}%;--ty:{state.get("topic_y",18)}%;--tw:{state.get("topic_width",68)}%;--th:{state.get("topic_height",24)}%">{topic}</div>'
-    )
-    highlight_html = "" if hidden or not state.get("show_highlight") or not highlight else (
-        f'<div class="highlight" style="--hx:{state.get("highlight_x",35)}%;--hy:{state.get("highlight_y",43)}%;--hw:{state.get("highlight_width",62)}%;--hh:{state.get("highlight_height",18)}%">{highlight}</div>'
-    )
-    cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud cloud-{cloud_slug}">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
-    live_since = ""
-    if state.get("show_live_since"):
-        live_since = f'<span>Live seit {live_since_time}</span>'
-    clock_html = "" if hidden or not state.get("show_clock") else (
-        f'<div class="live-clock" style="--lx:{state.get("clock_x",82)}%;--ly:{state.get("clock_y",12)}%;--lw:{state.get("clock_width",24)}%;--lh:{state.get("clock_height",9)}%"><b>LIVE {live_duration_text}</b>{live_since}</div>'
-    )
-    countdown_html = ""
-    if not hidden and state.get("show_countdown"):
-        countdown_html = (
-            f'<div class="countdown" style="--cx:{state.get("countdown_x",24)}%;--cy:{state.get("countdown_y",82)}%;--cw:{state.get("countdown_width",32)}%;--ch:{state.get("countdown_height",12)}%">'
-            f'<div class="ring" style="--pct:{countdown_pct:.1f}"></div>'
-            f'<div><b>{html.escape(state.get("countdown_title") or "")}</b><span>{mins:02d}:{secs:02d}</span></div>'
-            f'</div>'
-        )
-
-    safe_html = ""
-    if safe_zones and not hidden:
-        safe_html = '<div class="safe guest">Gäste-Zone</div><div class="safe chat">TikTok Chat-Zone</div>'
-    motion_html = ""
-    if not hidden and anim_enabled and state.get("show_motion_layers", True) and state.get("motion_effects"):
-        effect_nodes = []
-        for effect in normalize_motion_effects(state.get("motion_effects", [])):
-            slug = effect.lower().replace("-", "")
-            if slug == "lagerfeuer":
-                effect_nodes.append(
-                    '<div class="fireplace">'
-                    '<div class="fire-glow"></div>'
-                    '<i class="flame f1"></i><i class="flame f2"></i><i class="flame f3"></i><i class="flame f4"></i><i class="flame f5"></i>'
-                    '<i class="ember e1"></i><i class="ember e2"></i><i class="ember e3"></i><i class="ember e4"></i>'
-                    '<div class="logs"><span></span><span></span></div>'
-                    '</div>'
-                )
-            else:
-                effect_nodes.append(f'<i class="fx fx-{html.escape(slug)}"></i>')
-        effect_nodes = "".join(effect_nodes)
-        motion_html = f'<div class="motion-layer">{effect_nodes}</div>'
-    heatmap_html = ""
-    if not hidden and state.get("show_heatmap"):
-        heat_cls = "positive" if heat_score > 0.18 else "negative" if heat_score < -0.18 else "neutral"
-        heatmap_html = f'<div class="heatmap {heat_cls}"><span>Stimmung: {html.escape(str(heat.get("label", "neutral")))}</span></div>'
-    video_html = ""
-    if not hidden and show_video:
-        video_url = readable_url(state.get("video_url", ""))
-        video_muted = bool(state.get("video_muted"))
-        youtube_url = youtube_embed_url(video_url, autoplay=video_muted, muted=video_muted)
-        if youtube_url:
-            video_html = (
-                f'<iframe class="stage-video video-embed" src="{youtube_url}" '
-                f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};" '
-                f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>'
-            )
-        else:
-            video_html = (
-                f'<video class="stage-video" src="{html.escape(video_url)}" '
-                f'id="stageVideo" '
-                f'controls playsinline {"autoplay muted" if video_muted else ""} '
-                f'style="--vx:{state.get("video_x",50)}%;--vy:{state.get("video_y",54)}%;--vw:{state.get("video_width",70)}%;--vh:{state.get("video_height",40)}%;--vo:{state.get("video_opacity",100)/100:.2f};object-fit:{html.escape(state.get("video_fit","contain"))};"></video>'
-                f'<div class="video-controls"><button onclick="stageVideo.currentTime=Math.max(0,stageVideo.currentTime-10)">-10</button><button onclick="stageVideo.paused?stageVideo.play():stageVideo.pause()">Play/Pause</button><button onclick="stageVideo.currentTime=stageVideo.currentTime+10">+10</button></div>'
-            )
-    website_html = ""
-    if not hidden and state.get("show_website") and state.get("website_url"):
-        website_url = readable_url(state.get("website_url", ""))
-        website_mode = state.get("website_mode", "Auto")
-        has_preview = bool(state.get("website_preview_text"))
-        has_proxy = bool(state.get("website_proxy_html"))
-        use_proxy = website_mode == "Website-Proxy" or (website_mode == "Auto" and has_proxy)
-        use_reader = website_mode == "Website-Vorschau" or (website_mode == "Auto" and has_preview and not has_proxy)
-        use_link_card = website_mode == "Link-Karte" or website_mode == "Auto"
-        host = html.escape(url_host(website_url) or website_url)
-        if use_proxy:
-            website_html = (
-                f'<iframe class="stage-web website-proxy" srcdoc="{html.escape(state.get("website_proxy_html", ""))}" '
-                f'style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;" '
-                f'sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>'
-            )
-        elif use_reader:
-            website_html = (
-                f'<div class="stage-web-card reader" style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;">'
-                f'<span>Website-Vorschau · {host}</span><b>{html.escape(state.get("website_preview_title") or host)}</b>'
-                f'<p>{html.escape(state.get("website_preview_text", ""))}</p><small>{html.escape(website_url)}</small></div>'
-            )
-        elif use_link_card:
-            website_html = (
-                f'<div class="stage-web-card" style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;">'
-                f'<span>Website</span><b>{host}</b><p>Viele normale Websites blockieren Browser-Einbettung. Lade eine Website-Vorschau oder nutze eine offizielle Embed-/Video-URL.</p>'
-                f'<small>{html.escape(website_url)}</small></div>'
-            )
-        else:
-            website_html = (
-                f'<iframe class="stage-web" src="{html.escape(website_url)}" '
-                f'style="--wx:{state.get("website_x",50)}%;--wy:{state.get("website_y",54)}%;--ww:{state.get("website_width",76)}%;--wh:{state.get("website_height",58)}%;" '
-                f'allow="clipboard-read; clipboard-write; fullscreen; autoplay" referrerpolicy="no-referrer-when-downgrade"></iframe>'
-            )
-    pdf_html = ""
-    if not hidden and state.get("show_pdf") and state.get("pdf_data"):
-        pdf_title = html.escape(state.get("pdf_name") or "PDF")
-        pdf_aspect = "portrait" if state.get("pdf_orientation", "Hochformat") == "Hochformat" else "landscape"
-        pdf_html = (
-            f'<div class="stage-pdf pdf-{pdf_aspect}" style="--px:{state.get("pdf_x",50)}%;--py:{state.get("pdf_y",54)}%;--pw:{state.get("pdf_width",76)}%;--ph:{state.get("pdf_height",72)}%;">'
-            f'<div class="pdf-title">{pdf_title}</div>'
-            f'<iframe title="{pdf_title}" srcdoc="{html.escape(pdf_viewer_srcdoc(state.get("pdf_data", ""), state.get("pdf_name", "PDF"), int(state.get("pdf_zoom", 100) or 100)))}"></iframe>'
-            f'</div>'
-        )
-    ai_html = ""
-    if not hidden and state.get("show_ai_card") and state.get("ai_response"):
-        ai_text = state.get("ai_response", "")
-        if not is_ai_error_text(ai_text):
-            ai_html = (
-                f'<div class="ai-card" style="--ax:{state.get("ai_x",36)}%;--ay:{state.get("ai_y",70)}%;--aw:{state.get("ai_width",58)}%;--ah:{state.get("ai_height",26)}%">'
-                f'<b>KI-Check</b><p>{html.escape(ai_text)}</p></div>'
-            )
-
-    editor_html = ""
-    if state.get("stage_edit_mode") and not hidden:
-        boxes: list[str] = []
-        if state.get("show_topic"):
-            boxes.append(f'<div class="editor-box" data-target="topic" style="--ex:{state.get("topic_x",36)}%;--ey:{state.get("topic_y",18)}%;--ew:{state.get("topic_width",68)}%;--eh:{state.get("topic_height",24)}%"><span>Thema</span><i></i></div>')
-        if state.get("show_highlight") and highlight:
-            boxes.append(f'<div class="editor-box" data-target="highlight" style="--ex:{state.get("highlight_x",35)}%;--ey:{state.get("highlight_y",43)}%;--ew:{state.get("highlight_width",62)}%;--eh:{state.get("highlight_height",18)}%"><span>Highlight</span><i></i></div>')
-        if state.get("show_cloud"):
-            boxes.append(f'<div class="editor-box" data-target="cloud" style="--ex:{cloud_x}%;--ey:{cloud_y}%;--ew:{cloud_w}%;--eh:{cloud_h}%"><span>Cloud</span><i></i></div>')
-        if state.get("show_countdown"):
-            boxes.append(f'<div class="editor-box" data-target="countdown" style="--ex:{state.get("countdown_x",24)}%;--ey:{state.get("countdown_y",82)}%;--ew:{state.get("countdown_width",32)}%;--eh:{state.get("countdown_height",12)}%"><span>Countdown</span><i></i></div>')
-        if state.get("show_clock"):
-            boxes.append(f'<div class="editor-box" data-target="clock" style="--ex:{state.get("clock_x",82)}%;--ey:{state.get("clock_y",12)}%;--ew:{state.get("clock_width",24)}%;--eh:{state.get("clock_height",9)}%"><span>Live-Uhr</span><i></i></div>')
-        if show_video:
-            boxes.append(f'<div class="editor-box" data-target="video" style="--ex:{state.get("video_x",50)}%;--ey:{state.get("video_y",54)}%;--ew:{state.get("video_width",70)}%;--eh:{state.get("video_height",40)}%"><span>Video</span><i></i></div>')
-        if state.get("show_website") and state.get("website_url"):
-            boxes.append(f'<div class="editor-box" data-target="website" style="--ex:{state.get("website_x",50)}%;--ey:{state.get("website_y",54)}%;--ew:{state.get("website_width",76)}%;--eh:{state.get("website_height",58)}%"><span>Website</span><i></i></div>')
-        if state.get("show_pdf") and state.get("pdf_data"):
-            boxes.append(f'<div class="editor-box" data-target="pdf" style="--ex:{state.get("pdf_x",50)}%;--ey:{state.get("pdf_y",54)}%;--ew:{state.get("pdf_width",76)}%;--eh:{state.get("pdf_height",72)}%"><span>PDF</span><i></i></div>')
-        if state.get("show_ai_card") and state.get("ai_response") and not is_ai_error_text(state.get("ai_response", "")):
-            boxes.append(f'<div class="editor-box" data-target="ai" style="--ex:{state.get("ai_x",36)}%;--ey:{state.get("ai_y",70)}%;--ew:{state.get("ai_width",58)}%;--eh:{state.get("ai_height",26)}%"><span>KI-Karte</span><i></i></div>')
-        if boxes:
-            editor_html = f'<div class="stage-editor">{"".join(boxes)}<div class="editor-hint">Ziehen = platzieren · Ecke = skalieren</div></div>'
-
-    frame_cls = " framed" if state.get("show_overlay_frame", True) else ""
-    anim_cls = " animated" if anim_enabled else ""
-
-    return f"""
-    <!doctype html>
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-    :root {{
-      --bg:{theme["bg"]}; --panel:{theme["panel"]}; --text:{theme["text"]}; --muted:{theme["muted"]};
-      --accent:{theme["accent"]}; --accent2:{theme["accent2"]}; --glow:{theme["glow"]};
-      --opacity:{overlay_opacity}; --topicSize:{topic_size:.2f}; --highlightSize:{highlight_size:.2f};
-      --countdownSize:{countdown_size:.2f}; --clockSize:{clock_size:.2f};
-      --accent3:{theme.get("accent3", theme["accent"])}; --cloudX:{cloud_x}%; --cloudY:{cloud_y}%;
-      --cloudW:{cloud_w}%; --cloudH:{cloud_h}%; --cloudTilt:{cloud_tilt}deg;
-      --topicFont:{topic_font}; --keywordFont:{keyword_font}; --highlightFont:{highlight_font}; --countdownFont:{countdown_font};
-      --topicWeight:{topic_weight}; --keywordWeight:{keyword_weight}; --highlightWeight:{highlight_weight}; --countdownWeight:{countdown_weight};
-      --topicSpacing:{topic_spacing:.2f}em; --highlightSpacing:{highlight_spacing:.2f}em; --topicTransform:{topic_transform};
-      --dim:{dim_alpha:.2f};
-      --motionOpacity:{motion_opacity:.2f}; --motionSpeed:{max(.4, state.get("motion_speed", 55) / 55):.2f};
-      --heatOpacity:{heat_opacity:.2f}; --heatIntensity:{heat_intensity:.2f};
-    }}
-    * {{ box-sizing:border-box; }}
-    body {{
-      margin:0; min-height:100vh; display:grid; place-items:center; background:#050608;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color:var(--text); overflow:hidden;
-    }}
-    .stage-wrap {{ width:{stage_width}; height:100vh; display:grid; place-items:center; padding:12px; }}
-    .stage {{
-      position:relative; width:100%; max-width:100%; max-height:100%; aspect-ratio:{aspect}; overflow:hidden;
-      background: var(--bg); opacity:var(--opacity); border-radius:4px; isolation:isolate;
-      box-shadow:0 24px 70px rgba(0,0,0,.42);
-    }}
-    .stage::before {{
-      content:""; position:absolute; inset:0; z-index:-3; pointer-events:none;
-      background: transparent;
-    }}
-    .layout-neon::before {{ background:radial-gradient(circle at 72% 22%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 26%), radial-gradient(circle at 15% 78%, color-mix(in srgb, var(--accent2) 22%, transparent), transparent 30%); }}
-    .layout-candy::before {{ background:linear-gradient(135deg, #ff8cc6 0%, #ffb347 35%, #fff176 62%, #55e6d6 100%); opacity:.86; }}
-    .layout-bauhaus::before {{ background:linear-gradient(90deg, transparent 0 62%, color-mix(in srgb, var(--accent2) 18%, transparent) 62%), radial-gradient(circle at 84% 18%, var(--accent3) 0 8%, transparent 8%), linear-gradient(135deg, transparent 0 72%, var(--accent) 72%); opacity:.55; }}
-    .layout-print::before {{ background:repeating-linear-gradient(0deg, rgba(0,0,0,.025) 0 1px, transparent 1px 7px); }}
-    .layout-festival::before {{ background:radial-gradient(circle at 18% 18%, var(--accent) 0 8%, transparent 8%), radial-gradient(circle at 78% 22%, var(--accent2) 0 12%, transparent 12%), radial-gradient(circle at 84% 76%, var(--accent3) 0 10%, transparent 10%); opacity:.32; }}
-    .layout-cyber::before {{ background:linear-gradient(120deg, rgba(0,245,255,.16), transparent 35%), repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 44px); }}
-    .layout-aurora::before {{ background:radial-gradient(ellipse at 20% 25%, rgba(112,255,202,.35), transparent 34%), radial-gradient(ellipse at 85% 35%, rgba(154,140,255,.32), transparent 36%); }}
-    .layout-poster::before {{ background:linear-gradient(135deg, rgba(255,42,42,.20) 0 22%, transparent 22% 70%, rgba(255,212,0,.28) 70%), repeating-linear-gradient(0deg, rgba(0,0,0,.035) 0 2px, transparent 2px 8px); }}
-    .layout-bloom::before {{ background:radial-gradient(circle at 28% 34%, rgba(124,255,107,.28), transparent 22%), radial-gradient(circle at 72% 58%, rgba(107,214,255,.24), transparent 28%); }}
-    .layout-velvet::before {{ background:radial-gradient(circle at 24% 22%, rgba(255,93,168,.32), transparent 28%), radial-gradient(circle at 80% 78%, rgba(255,207,112,.20), transparent 32%); }}
-    .stage.framed {{ outline:1px solid color-mix(in srgb, var(--accent) 42%, transparent); }}
-    .bg-image {{ position:absolute; inset:-5%; background-repeat:no-repeat; z-index:-4; {bg_style} }}
-    .readability {{
-      position:absolute; inset:0; z-index:-3;
-      background:
-        radial-gradient(circle at 24% 28%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 30%),
-        linear-gradient(90deg, rgba(0,0,0,var(--dim)), rgba(0,0,0,calc(var(--dim) * .38)) 50%, rgba(0,0,0,calc(var(--dim) * .18))),
-        linear-gradient(180deg, rgba(0,0,0,calc(var(--dim) * .2)), rgba(0,0,0,var(--dim)));
-    }}
-    .layout-clean .readability {{ background:linear-gradient(90deg, rgba(255,255,255,.68), rgba(255,255,255,.24) 65%, rgba(255,255,255,.06)); }}
-    .layout-soft .readability {{ background:radial-gradient(circle at 18% 26%, rgba(176,78,111,.16), transparent 28%), linear-gradient(90deg, rgba(255,246,239,.72), rgba(255,246,239,.2) 62%, rgba(255,246,239,.05)); }}
-    .grain {{ position:absolute; inset:0; z-index:-2; background-image:linear-gradient(115deg, transparent, rgba(255,255,255,.035), transparent); opacity:.55; }}
-    .motion-layer {{ position:absolute; inset:0; z-index:1; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
-    .fx {{ position:absolute; inset:-18%; display:block; }}
-    .fx-aerosolwolken {{
-      background:
-        radial-gradient(ellipse at 18% 72%, rgba(236,246,255,.52), rgba(236,246,255,.28) 18%, transparent 42%),
-        radial-gradient(ellipse at 38% 82%, rgba(210,230,255,.48), rgba(210,230,255,.22) 20%, transparent 46%),
-        radial-gradient(ellipse at 68% 76%, rgba(245,250,255,.42), rgba(245,250,255,.18) 22%, transparent 48%),
-        radial-gradient(ellipse at 82% 62%, rgba(200,220,245,.30), transparent 36%);
-      filter:blur(14px); animation:aerosolDrift calc(18s / var(--motionSpeed)) ease-in-out infinite alternate;
-    }}
-    .fireplace {{ position:absolute; left:50%; bottom:4%; width:62%; height:30%; transform:translateX(-50%); filter:saturate(1.15); }}
-    .fire-glow {{ position:absolute; left:50%; bottom:2%; width:86%; height:86%; transform:translateX(-50%); background:radial-gradient(ellipse at 50% 80%, rgba(255,132,28,.75), rgba(255,58,18,.34) 30%, rgba(255,160,50,.12) 52%, transparent 74%); filter:blur(20px); animation:flicker calc(2.6s / var(--motionSpeed)) ease-in-out infinite; }}
-    .flame {{ position:absolute; bottom:18%; left:50%; width:16%; height:62%; border-radius:48% 48% 52% 52%; transform-origin:50% 100%; background:linear-gradient(180deg, rgba(255,250,180,.95) 0%, rgba(255,175,38,.95) 36%, rgba(255,69,18,.72) 76%, transparent 100%); filter:blur(.4px); mix-blend-mode:screen; animation: flameDance calc(1.7s / var(--motionSpeed)) ease-in-out infinite; }}
-    .flame.f1 {{ left:40%; height:54%; width:15%; animation-delay:-.1s; }}
-    .flame.f2 {{ left:49%; height:76%; width:18%; animation-delay:-.45s; }}
-    .flame.f3 {{ left:58%; height:48%; width:14%; animation-delay:-.8s; }}
-    .flame.f4 {{ left:45%; height:38%; width:11%; background:linear-gradient(180deg, rgba(255,255,220,.9), rgba(255,214,62,.9) 42%, transparent); animation-delay:-1.1s; }}
-    .flame.f5 {{ left:54%; height:44%; width:12%; background:linear-gradient(180deg, rgba(255,245,190,.86), rgba(255,109,22,.82) 58%, transparent); animation-delay:-1.35s; }}
-    .logs {{ position:absolute; left:50%; bottom:10%; width:44%; height:16%; transform:translateX(-50%); }}
-    .logs span {{ position:absolute; left:8%; right:8%; top:36%; height:38%; border-radius:999px; background:linear-gradient(90deg, #32170c, #8b4520 28%, #2a1208 72%, #7a3618); box-shadow:0 0 18px rgba(255,90,22,.38); }}
-    .logs span:first-child {{ transform:rotate(11deg); }}
-    .logs span:last-child {{ transform:rotate(-10deg); top:42%; }}
-    .ember {{ position:absolute; bottom:30%; width:5px; height:5px; border-radius:50%; background:#ffd36c; box-shadow:0 0 14px #ff8b22; animation: emberRise calc(4.8s / var(--motionSpeed)) linear infinite; }}
-    .ember.e1 {{ left:42%; animation-delay:-.3s; }} .ember.e2 {{ left:50%; animation-delay:-1.4s; }} .ember.e3 {{ left:58%; animation-delay:-2.6s; }} .ember.e4 {{ left:46%; animation-delay:-3.4s; }}
-    .fx-lichtstaub {{ background-image:radial-gradient(circle, rgba(255,255,255,.75) 0 1px, transparent 2px); background-size:72px 72px; animation: drift calc(30s / var(--motionSpeed)) linear infinite reverse; }}
-    .fx-scanlines {{ background:repeating-linear-gradient(180deg, rgba(255,255,255,.10) 0 1px, transparent 1px 8px); animation: scan calc(8s / var(--motionSpeed)) linear infinite; }}
-    .fx-regen {{ background:repeating-linear-gradient(110deg, transparent 0 16px, rgba(160,200,255,.18) 17px 19px, transparent 20px 34px); animation: rain calc(5s / var(--motionSpeed)) linear infinite; }}
-    .fx-funkeln {{ background:radial-gradient(circle at 20% 20%, rgba(255,255,255,.75), transparent 1.5%), radial-gradient(circle at 70% 36%, rgba(255,255,255,.55), transparent 1.2%), radial-gradient(circle at 52% 80%, rgba(255,255,255,.45), transparent 1.4%); animation:flicker calc(4s / var(--motionSpeed)) ease-in-out infinite alternate; }}
-    .fx-wellen {{ background:repeating-radial-gradient(ellipse at 50% 60%, transparent 0 8%, rgba(255,255,255,.12) 9%, transparent 10%); animation:pulse calc(10s / var(--motionSpeed)) ease-in-out infinite; }}
-    .heatmap {{ position:absolute; inset:0; z-index:1; pointer-events:none; opacity:calc(var(--heatOpacity) * var(--heatIntensity)); mix-blend-mode:screen; }}
-    .heatmap.positive {{ background:radial-gradient(circle at 28% 28%, rgba(57,255,146,.55), transparent 32%), radial-gradient(circle at 70% 62%, rgba(80,180,255,.22), transparent 30%); }}
-    .heatmap.negative {{ background:radial-gradient(circle at 30% 30%, rgba(255,57,86,.55), transparent 34%), radial-gradient(circle at 65% 68%, rgba(255,176,58,.28), transparent 32%); }}
-    .heatmap.neutral {{ background:radial-gradient(circle at 38% 38%, rgba(255,255,255,.20), transparent 34%), radial-gradient(circle at 74% 58%, rgba(120,160,255,.18), transparent 32%); }}
-    .heatmap span {{ position:absolute; left:7%; bottom:14%; font-size:12px; font-weight:900; text-transform:uppercase; color:rgba(255,255,255,.72); }}
-    .topic {{
-      position:absolute; left:var(--tx); top:var(--ty); width:var(--tw); min-height:var(--th); transform:translate(-50%,-50%);
-      font-weight:850; line-height:.98;
-      font-family:var(--topicFont); font-weight:var(--topicWeight);
-      font-size:calc(clamp(36px, 7.4vw, 74px) * var(--topicSize)); letter-spacing:var(--topicSpacing); text-transform:var(--topicTransform);
-      text-wrap:balance; text-shadow:0 8px 28px rgba(0,0,0,.38);
-    }}
-    .topic::after {{ content:""; display:block; width:72px; height:3px; margin-top:18px; background:var(--accent); border-radius:3px; box-shadow:0 0 24px var(--glow); }}
-    .highlight {{
-      position:absolute; left:var(--hx); top:var(--hy); width:var(--hw); min-height:var(--hh); transform:translate(-50%,-50%);
-      padding:.18em .32em .26em;
-      font-family:var(--highlightFont); font-size:calc(clamp(42px, 9vw, 96px) * var(--highlightSize)); font-weight:var(--highlightWeight); letter-spacing:var(--highlightSpacing); line-height:.9; color:var(--text);
-      background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
-      border-left:4px solid var(--accent); text-shadow:0 0 30px var(--glow), 0 12px 28px rgba(0,0,0,.32);
-    }}
-    .cloud {{
-      position:absolute; left:var(--cloudX); top:var(--cloudY); width:var(--cloudW); height:var(--cloudH);
-      transform:translate(-50%,-50%) rotate(var(--cloudTilt)); transform-origin:center; z-index:3;
-    }}
-    .kw {{
-      position:absolute; left:var(--x); top:var(--y); transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s));
-      font-family:var(--keywordFont); font-weight:var(--w, var(--keywordWeight)); line-height:1; padding:.18rem .38rem; border-radius:7px;
-      color:var(--text); background:color-mix(in srgb, var(--panel) 80%, transparent);
-      border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-      box-shadow:0 10px 26px rgba(0,0,0,.18), 0 0 24px var(--glow);
-      white-space:nowrap; font-size:clamp(12px, 2.1vw, 24px);
-    }}
-    .animated .kw {{ animation: floaty var(--d) ease-in-out infinite; animation-delay:var(--delay); }}
-    .kw.fresh {{ color:var(--accent); box-shadow:0 0 38px var(--glow), 0 12px 30px rgba(0,0,0,.24); }}
-    .cloud-bubble .kw, .cloud-Bubble .kw {{ border-radius:999px; padding:.38rem .62rem; background:color-mix(in srgb, var(--panel) 70%, transparent); backdrop-filter:blur(8px); }}
-    .cloud-magazine .kw {{ background:transparent; border-color:transparent; box-shadow:none; font-family:var(--topicFont); }}
-    .cloud-network .kw {{ border-radius:999px; background:rgba(13,20,20,.68); }}
-    .cloud-color .kw.c0 {{ color:var(--accent); }} .cloud-color .kw.c1 {{ color:var(--accent2); }} .cloud-color .kw.c2 {{ color:var(--accent3); }} .cloud-color .kw.c3 {{ color:#ffffff; }} .cloud-color .kw.c4 {{ color:#ffd166; }} .cloud-color .kw.c5 {{ color:#2dfcff; }}
-    .cloud-minimal .kw {{ background:transparent; border:0; box-shadow:none; }}
-    .kw.manual {{
-      z-index:4; color:var(--accent); background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 24%, var(--panel)), color-mix(in srgb, var(--accent2) 18%, var(--panel)));
-      border-color:color-mix(in srgb, var(--accent) 58%, transparent); text-transform:uppercase; letter-spacing:0;
-    }}
-    .kw.manual-emphasis {{ box-shadow:0 0 46px var(--glow), 0 14px 34px rgba(0,0,0,.32); }}
-    .layout-map .kw {{ border-radius:999px; background:rgba(13,20,20,.68); }}
-    .map-lines {{ position:absolute; inset:0; opacity:.42; }}
-    .map-lines line {{ stroke:var(--accent); stroke-width:.22; vector-effect:non-scaling-stroke; }}
-    .countdown {{
-      position:absolute; left:var(--cx); top:var(--cy); width:var(--cw); min-height:var(--ch); transform:translate(-50%,-50%);
-      min-width:160px; display:flex; align-items:center; gap:14px;
-      padding:14px 16px; border:1px solid color-mix(in srgb, var(--accent) 32%, transparent);
-      background:var(--panel); backdrop-filter:blur(14px); border-radius:8px;
-    }}
-    .countdown b {{ display:block; font-family:var(--countdownFont); font-size:calc(14px * var(--countdownSize)); color:var(--muted); margin-bottom:2px; }}
-    .countdown span {{ display:block; font-family:var(--countdownFont); font-size:calc(32px * var(--countdownSize)); font-weight:var(--countdownWeight); line-height:1; }}
-    .ring {{
-      width:54px; height:54px; border-radius:50%;
-      background:conic-gradient(var(--accent) calc(var(--pct) * 1%), rgba(255,255,255,.13) 0);
-      position:relative;
-    }}
-    .ring::after {{ content:""; position:absolute; inset:7px; border-radius:50%; background:var(--bg); }}
-    .live-clock {{
-      position:absolute; left:var(--lx); top:var(--ly); width:var(--lw); min-height:var(--lh); transform:translate(-50%,-50%);
-      padding:9px 12px; border-radius:999px;
-      display:flex; flex-direction:column; gap:1px; font-family:var(--countdownFont); font-weight:800; font-size:calc(14px * var(--clockSize)); color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
-    }}
-    .live-clock span, .live-clock small {{ font-size:.76em; color:var(--muted); line-height:1.08; }}
-    .safe {{ position:absolute; display:grid; place-items:center; color:rgba(255,255,255,.72); border:1px dashed rgba(255,255,255,.38); background:rgba(255,255,255,.06); font-size:13px; font-weight:800; text-transform:uppercase; }}
-    .safe.guest {{ top:0; right:0; width:28%; height:100%; }}
-    .safe.chat {{ left:0; right:0; bottom:0; height:18%; }}
-    .stage-video, .stage-web, .stage-web-card, .stage-pdf {{
-      position:absolute; left:var(--vx, var(--wx)); top:var(--vy, var(--wy));
-      width:var(--vw, var(--ww)); height:var(--vh, var(--wh));
-      transform:translate(-50%,-50%); z-index:5; border-radius:8px;
-      border:1px solid color-mix(in srgb, var(--accent) 38%, transparent);
-      box-shadow:0 18px 48px rgba(0,0,0,.42); background:#050608;
-    }}
-    .stage-video {{ opacity:var(--vo); }}
-    .video-controls {{ position:absolute; left:var(--vx,50%); top:calc(var(--vy,54%) + var(--vh,40%) / 2 + 18px); transform:translateX(-50%); z-index:7; display:flex; gap:8px; }}
-    .video-controls button {{ border:1px solid color-mix(in srgb, var(--accent) 36%, transparent); background:rgba(0,0,0,.58); color:#fff; border-radius:999px; padding:8px 12px; font-weight:900; cursor:pointer; }}
-    .stage-web {{ z-index:4; }}
-    .stage-web-card {{
-      z-index:4; display:flex; flex-direction:column; justify-content:center; padding:28px;
-      background:linear-gradient(135deg, color-mix(in srgb, var(--panel) 92%, #0b0e12), rgba(0,0,0,.72));
-      color:var(--text); backdrop-filter:blur(14px);
-    }}
-    .stage-web-card span {{ color:var(--accent); font-size:13px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; }}
-    .stage-web-card b {{ margin-top:10px; font-size:clamp(30px, 5.6vw, 62px); line-height:.98; font-family:var(--topicFont); }}
-    .stage-web-card p {{ max-width:88%; color:var(--muted); font-size:clamp(16px, 2.3vw, 24px); line-height:1.25; }}
-    .stage-web-card small {{ color:color-mix(in srgb, var(--muted) 76%, transparent); word-break:break-all; font-size:13px; }}
-    .stage-web-card.reader {{ justify-content:flex-start; overflow:hidden; }}
-    .stage-web-card.reader b {{ font-size:clamp(24px, 3.7vw, 46px); }}
-    .stage-web-card.reader p {{ max-width:96%; font-size:clamp(15px, 1.8vw, 21px); line-height:1.38; overflow:hidden; }}
-    .stage-pdf {{
-      left:var(--px); top:var(--py); width:var(--pw); height:var(--ph); z-index:6;
-      overflow:hidden; background:#14171c;
-    }}
-    .stage-pdf.pdf-landscape {{ width:min(var(--pw), 94%); }}
-    .stage-pdf iframe {{ width:100%; height:100%; border:0; display:block; background:#2a2d33; }}
-    .pdf-title {{
-      position:absolute; left:10px; top:8px; z-index:2; padding:5px 8px; border-radius:999px;
-      background:rgba(0,0,0,.58); color:#fff; font-size:11px; font-weight:900; max-width:calc(100% - 20px);
-      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; pointer-events:none;
-    }}
-    .ai-card {{
-      position:absolute; left:var(--ax); top:var(--ay); width:var(--aw); height:var(--ah); transform:translate(-50%,-50%);
-      z-index:6; padding:18px 20px; overflow:hidden;
-      border-radius:8px; background:var(--panel); border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
-      backdrop-filter:blur(16px); box-shadow:0 18px 48px rgba(0,0,0,.34);
-    }}
-    .ai-card b {{ display:block; font-family:var(--countdownFont); color:var(--accent); margin-bottom:8px; }}
-    .ai-card p {{ margin:0; white-space:pre-wrap; font-size:clamp(11px, 1.22vw, 18px); line-height:1.24; }}
-    .stage-editor {{ position:absolute; inset:0; z-index:30; pointer-events:none; }}
-    .editor-box {{
-      position:absolute; left:var(--ex); top:var(--ey); width:var(--ew); height:var(--eh);
-      transform:translate(-50%,-50%); border:2px solid #ff2f65; background:rgba(255,47,101,.045);
-      box-shadow:0 0 0 1px rgba(255,255,255,.28), 0 0 28px rgba(255,47,101,.28);
-      border-radius:6px; pointer-events:auto; cursor:move; touch-action:none;
-    }}
-    .editor-box span {{
-      position:absolute; left:8px; top:7px; padding:4px 8px; border-radius:999px;
-      background:rgba(0,0,0,.75); color:#fff; font:900 11px/1 system-ui, sans-serif;
-    }}
-    .editor-box i {{
-      position:absolute; right:-7px; bottom:-7px; width:18px; height:18px; border-radius:4px;
-      background:#ff2f65; border:2px solid #fff; cursor:nwse-resize;
-    }}
-    .editor-hint {{
-      position:absolute; left:10px; bottom:10px; padding:7px 10px; border-radius:999px;
-      background:rgba(0,0,0,.68); color:#fff; font:800 12px/1 system-ui, sans-serif;
-    }}
-    @keyframes floaty {{
-      0%,100% {{ transform:translate(-50%,-50%) rotate(var(--r)) scale(var(--s)); opacity:.82; }}
-      50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity:1; }}
-    }}
-    @keyframes drift {{ from {{ transform:translate3d(-4%,0,0); }} to {{ transform:translate3d(6%,-4%,0); }} }}
-    @keyframes aerosolDrift {{ 0% {{ transform:translate3d(-8%, 4%, 0) scale(1); opacity:.72; }} 50% {{ transform:translate3d(2%, -3%, 0) scale(1.08); opacity:1; }} 100% {{ transform:translate3d(9%, 2%, 0) scale(1.03); opacity:.82; }} }}
-    @keyframes flicker {{ 0%,100% {{ opacity:.55; transform:scale(1); }} 50% {{ opacity:1; transform:scale(1.04); }} }}
-    @keyframes flameDance {{ 0%,100% {{ transform:translateX(-50%) rotate(-3deg) scaleY(.95); opacity:.82; }} 35% {{ transform:translateX(calc(-50% - 5px)) rotate(4deg) scaleY(1.08); opacity:1; }} 70% {{ transform:translateX(calc(-50% + 4px)) rotate(-6deg) scaleY(.9); opacity:.9; }} }}
-    @keyframes emberRise {{ 0% {{ transform:translate3d(0, 0, 0) scale(.7); opacity:0; }} 18% {{ opacity:1; }} 100% {{ transform:translate3d(18px, -180px, 0) scale(.15); opacity:0; }} }}
-    @keyframes scan {{ from {{ transform:translateY(-8%); }} to {{ transform:translateY(8%); }} }}
-    @keyframes rain {{ from {{ transform:translate3d(-6%,-10%,0); }} to {{ transform:translate3d(6%,10%,0); }} }}
-    @keyframes pulse {{ 0%,100% {{ transform:scale(.96); opacity:.5; }} 50% {{ transform:scale(1.05); opacity:1; }} }}
-    @media (max-width: 740px) {{
-      .stage-wrap {{ padding:4px; }}
-      .topic {{ font-size:calc(clamp(30px, 12vw, 58px) * var(--topicSize)); }}
-      .highlight {{ font-size:calc(clamp(38px, 13vw, 74px) * var(--highlightSize)); }}
-      .kw {{ font-size:clamp(11px, 4.2vw, 20px); }}
-    }}
-    </style>
-    </head>
-    <body>
-      <div class="stage-wrap">
-        <main class="stage {frame_cls} {anim_cls} layout-{theme["key"]}">
-          <div class="bg-image"></div>
-          <div class="readability"></div>
-          <div class="grain"></div>
-          {heatmap_html}
-          {motion_html}
-          {clock_html}
-          {topic_html}
-          {highlight_html}
-          {website_html}
-          {video_html}
-          {pdf_html}
-          {cloud_html}
-          {countdown_html}
-          {ai_html}
-          {editor_html}
-          {safe_html}
-        </main>
-      </div>
-      <script>
-      (() => {{
-        const stage = document.querySelector(".stage");
-        if (!stage) return;
-        function pct(value, total) {{ return Math.max(0, Math.min(100, value / Math.max(1, total) * 100)); }}
-        function commit(target, rect) {{
-          const stageRect = stage.getBoundingClientRect();
-          const x = pct(rect.left + rect.width / 2 - stageRect.left, stageRect.width);
-          const y = pct(rect.top + rect.height / 2 - stageRect.top, stageRect.height);
-          const w = pct(rect.width, stageRect.width);
-          const h = pct(rect.height, stageRect.height);
-          const url = new URL(window.parent.location.href);
-          url.searchParams.set("stage_edit_target", target);
-          url.searchParams.set("stage_edit_x", x.toFixed(1));
-          url.searchParams.set("stage_edit_y", y.toFixed(1));
-          url.searchParams.set("stage_edit_w", w.toFixed(1));
-          url.searchParams.set("stage_edit_h", h.toFixed(1));
-          window.parent.location.href = url.toString();
-        }}
-        document.querySelectorAll(".editor-box").forEach((box) => {{
-          let start = null;
-          box.addEventListener("pointerdown", (event) => {{
-            event.preventDefault();
-            box.setPointerCapture(event.pointerId);
-            const stageRect = stage.getBoundingClientRect();
-            const rect = box.getBoundingClientRect();
-            start = {{
-              pointerId: event.pointerId,
-              resize: event.target.tagName.toLowerCase() === "i",
-              x: event.clientX,
-              y: event.clientY,
-              left: rect.left - stageRect.left,
-              top: rect.top - stageRect.top,
-              width: rect.width,
-              height: rect.height,
-              stageRect
-            }};
-          }});
-          box.addEventListener("pointermove", (event) => {{
-            if (!start || event.pointerId !== start.pointerId) return;
-            const dx = event.clientX - start.x;
-            const dy = event.clientY - start.y;
-            let left = start.left;
-            let top = start.top;
-            let width = start.width;
-            let height = start.height;
-            if (start.resize) {{
-              width = Math.max(40, Math.min(start.stageRect.width, start.width + dx));
-              height = Math.max(40, Math.min(start.stageRect.height, start.height + dy));
-            }} else {{
-              left = Math.max(0, Math.min(start.stageRect.width - width, start.left + dx));
-              top = Math.max(0, Math.min(start.stageRect.height - height, start.top + dy));
-            }}
-            box.style.left = `${{pct(left + width / 2, start.stageRect.width)}}%`;
-            box.style.top = `${{pct(top + height / 2, start.stageRect.height)}}%`;
-            box.style.width = `${{pct(width, start.stageRect.width)}}%`;
-            box.style.height = `${{pct(height, start.stageRect.height)}}%`;
-          }});
-          box.addEventListener("pointerup", (event) => {{
-            if (!start || event.pointerId !== start.pointerId) return;
-            const rect = box.getBoundingClientRect();
-            const target = box.dataset.target;
-            start = null;
-            commit(target, rect);
-          }});
-        }});
-      }})();
-      </script>
-    </body>
-    </html>
-    """
 
 
 def current_overlay_state() -> dict[str, Any]:
@@ -3082,29 +2564,31 @@ def render_stage(state: dict[str, Any], height: int = 860) -> None:
     """
     room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
     edit = "1" if st.session_state.get("stage_edit_mode") else "0"
-    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}&_={int(time.time() // 30)}"
-    iframe_html = f"""
-<!doctype html>
-<html><head><meta charset="utf-8"><style>
-html,body{{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}}
-iframe{{display:block;width:100%;height:100%;border:0;background:#050608;}}
-</style></head><body>
-<iframe id="stageframe" src="{html.escape(src)}" allow="autoplay; encrypted-media; fullscreen" referrerpolicy="no-referrer"></iframe>
-<script>
-window.addEventListener("message", function (ev) {{
-  if (!ev.data || ev.data.type !== "ttl-stage-edit") return;
-  // Forward to Streamlit parent so the queue can be drained on next rerun
-  try {{
-    var queue = JSON.parse(localStorage.getItem("ttl_stage_edit_queue") || "[]");
-    queue.push(ev.data);
-    while (queue.length > 30) queue.shift();
-    localStorage.setItem("ttl_stage_edit_queue", JSON.stringify(queue));
-  }} catch (e) {{}}
-  try {{ if (window.parent && window.parent !== window) window.parent.postMessage(ev.data, "*"); }} catch (e) {{}}
-}}, false);
-</script>
-</body></html>
-"""
+    # WICHTIG: Keine Timestamps oder Cache-Buster in der iframe-src.
+    # Streamlit re-mountet das Component, sobald sich der HTML-String ändert
+    # — das ist die Ursache des Reload-Loops. Die src darf sich nur ändern,
+    # wenn der User aktiv `room` oder `edit` umschaltet. Das Polling im
+    # Inneren von stage.html bringt die State-Updates rein.
+    src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
+    iframe_html = (
+        '<!doctype html><html><head><meta charset="utf-8"><style>'
+        'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'
+        'iframe{display:block;width:100%;height:100%;border:0;background:#050608;}'
+        '</style></head><body>'
+        f'<iframe id="stageframe" src="{html.escape(src)}" allow="autoplay; encrypted-media; fullscreen" referrerpolicy="no-referrer"></iframe>'
+        '<script>'
+        'window.addEventListener("message", function (ev) {'
+        '  if (!ev.data || ev.data.type !== "ttl-stage-edit") return;'
+        '  try {'
+        '    var queue = JSON.parse(localStorage.getItem("ttl_stage_edit_queue") || "[]");'
+        '    queue.push(ev.data);'
+        '    while (queue.length > 30) queue.shift();'
+        '    localStorage.setItem("ttl_stage_edit_queue", JSON.stringify(queue));'
+        '  } catch (e) {}'
+        '  try { if (window.parent && window.parent !== window) window.parent.postMessage(ev.data, "*"); } catch (e) {}'
+        '}, false);'
+        '</script></body></html>'
+    )
     st.components.v1.html(iframe_html, height=height, scrolling=False)
 
 
@@ -3336,18 +2820,26 @@ def render_image_panel() -> None:
     )
     st.toggle("Chat der letzten 5 Minuten in Bildprompt einbeziehen", key="image_prompt_use_chat")
     if st.session_state.get("image_model") not in IMAGE_MODELS:
-        st.session_state.image_model = "imagen-4.0-fast-generate-001"
+        st.session_state.image_model = "gemini-2.5-flash-image"
     st.selectbox("Bildmodell", IMAGE_MODELS, key="image_model", format_func=lambda value: IMAGE_MODEL_LABELS.get(value, value))
-    st.caption("Auto nutzt zuerst Gemini-Bildmodelle via `generate_content`. Imagen nutzt `generate_images` und kann Paid-Tier erfordern.")
-    if st.button("KI-Hintergrund erstellen", key="image_generate_ai", use_container_width=True):
+    st.caption("Auto / `gemini-2.5-flash-image` ist Free-Tier-tauglich. Imagen-4 erfordert oft Paid-Tier.")
+    cols_img = st.columns([0.6, 0.4])
+    if cols_img[0].button("KI-Hintergrund erstellen", key="image_generate_ai", use_container_width=True):
         ok, message = generate_background_image(st.session_state.image_prompt, st.session_state.image_prompt_use_chat)
         if ok:
             st.success(message)
         else:
             st.session_state.image_generation_error = message
             st.error(message)
+    if cols_img[1].button("API-Test", key="image_api_test", use_container_width=True, help="Prüft, ob der Google-API-Key passt und welche Modelle erreichbar sind."):
+        ok, report = test_genai_api()
+        if ok:
+            st.success("API erreichbar:")
+        else:
+            st.error("API nicht erreichbar:")
+        st.code(report)
     if st.session_state.image_generation_error:
-        st.caption(st.session_state.image_generation_error)
+        st.text_area("Letzter Bildgenerierungs-Fehler (raw)", value=st.session_state.image_generation_error, height=120, disabled=True)
     st.divider()
     uploads = st.file_uploader("Hintergrundbilder", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
     if uploads:
@@ -3945,10 +3437,17 @@ def main() -> None:
     st.markdown(css_for_streamlit(), unsafe_allow_html=True)
     apply_stage_editor_params()
     drain_stage_edit_queue()
-    # Auto-refresh nur fürs Regiepult (Bühne pollt selbst). Wenn Video aktiv
-    # ist, halten wir die Frequenz niedriger, damit die Sidebar nicht stört.
-    video_active = bool(st.session_state.get("show_video") and st.session_state.get("video_url"))
-    st_autorefresh(interval=6000 if video_active else 4000, key="refresh")
+    # Auto-refresh: nur dann nötig, wenn der Live-Chat tickt (neue Keywords)
+    # ODER ein Countdown läuft. Beim reinen Style-/Layout-Editieren wäre ein
+    # 4s-Refresh schädlich — er triggert Re-Renders der Sidebar und damit
+    # potenziell auch des Bühnen-iFrames. Die Bühne selbst pollt eigenständig
+    # alle 2s, dafür braucht das Regiepult kein Auto-Refresh.
+    rt = live_runtime()
+    live_active = bool(rt.thread and rt.thread.is_alive() and rt.status in {"connected", "connecting"})
+    countdown_active = bool(st.session_state.get("countdown_running"))
+    if live_active or countdown_active:
+        # Live-Betrieb: 5s reichen für Chat-Drain & Countdown-Tick.
+        st_autorefresh(interval=5000, key="refresh")
     update_countdown()
 
     drain_live_comments()
@@ -3967,6 +3466,8 @@ def main() -> None:
                 st.markdown(f"### {edit_label}")
             with top_cols[1]:
                 st.selectbox("Format", ["9:16", "16:9"], key="aspect", label_visibility="collapsed")
+            if st.session_state.get("stage_edit_mode"):
+                st.info("Edit-Modus aktiv — Layer auf der Bühne ziehen, skalieren oder mit ✕ ausblenden. Im Tab **Bühne › Sichtbarkeit** wieder einblenden.", icon="✏️")
             render_stage(current_overlay_state(), height=900)
     save_persisted_state("auto")
 

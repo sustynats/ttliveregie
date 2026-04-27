@@ -374,64 +374,95 @@ body.transparent .veil { background: transparent; display: none; }
 }
 
 /* Edit-Mode handles */
+#editHandles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9000;
+  display: none;
+}
+body.edit-mode #editHandles { display: block; }
 .edit-handle {
   position: absolute;
   cursor: move;
-  border: 2px dashed transparent;
-  border-radius: 8px;
-  transition: border-color 120ms;
-  z-index: 50;
+  border: 2px dashed rgba(41,243,255,.85);
+  border-radius: 10px;
+  background: rgba(41,243,255,.06);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.3) inset, 0 6px 22px rgba(0,0,0,.45);
+  z-index: 9100;
   pointer-events: auto;
   transform: translate(-50%, -50%);
+  user-select: none;
+  touch-action: none;
 }
-body.edit-mode .edit-handle { border-color: rgba(41,243,255,.55); background: rgba(41,243,255,.05); }
-body.edit-mode .edit-handle:hover { border-color: var(--accent2); background: rgba(41,243,255,.12); }
-body.edit-mode .edit-handle .label {
+.edit-handle:hover { border-color: var(--accent2, #29f3ff); background: rgba(41,243,255,.14); }
+.edit-handle .label {
   position: absolute;
-  top: -22px;
+  top: -26px;
   left: 0;
-  font: 600 11px/1 system-ui, sans-serif;
-  color: var(--accent2);
-  background: rgba(0,0,0,.65);
-  padding: 3px 8px;
+  font: 700 12px/1 system-ui, sans-serif;
+  color: #050608;
+  background: #29f3ff;
+  padding: 4px 10px;
   border-radius: 99px;
   pointer-events: none;
   white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,.4);
 }
-body.edit-mode .edit-handle .resize {
+.edit-handle .resize {
   position: absolute;
-  width: 14px;
-  height: 14px;
-  background: var(--accent2);
-  border: 2px solid #000;
+  width: 16px;
+  height: 16px;
+  background: #29f3ff;
+  border: 2px solid #050608;
   border-radius: 50%;
-  right: -8px;
-  bottom: -8px;
+  right: -10px;
+  bottom: -10px;
   cursor: nwse-resize;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
-body.edit-mode .edit-handle .hide-btn {
+.edit-handle .hide-btn {
   position: absolute;
-  top: -22px;
-  right: -8px;
-  width: 22px;
-  height: 22px;
-  background: rgba(255,80,120,.85);
+  top: -26px;
+  right: -10px;
+  width: 26px;
+  height: 26px;
+  background: #ff5078;
   color: #fff;
   border: 0;
   border-radius: 50%;
-  font: 700 14px/1 system-ui, sans-serif;
+  font: 800 16px/1 system-ui, sans-serif;
   cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,.4);
+  pointer-events: auto;
 }
-body.edit-mode .edit-grid {
+.edit-handle .hide-btn:hover { background: #ff2a5b; }
+.edit-grid {
   position: absolute;
   inset: 0;
-  z-index: 49;
+  z-index: 8000;
   pointer-events: none;
   background-image:
-    linear-gradient(0deg, rgba(255,255,255,.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
+    linear-gradient(0deg, rgba(255,255,255,.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px);
   background-size: 10% 10%;
 }
+.edit-banner {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  z-index: 9200;
+  background: rgba(5,6,8,.85);
+  color: #29f3ff;
+  border: 1px solid rgba(41,243,255,.4);
+  border-radius: 99px;
+  padding: 8px 18px;
+  font: 700 13px/1 system-ui, sans-serif;
+  pointer-events: none;
+  display: none;
+}
+body.edit-mode .edit-banner { display: block; }
 
 /* Status badge for debug/test mode */
 .status-badge {
@@ -499,6 +530,7 @@ body.edit-mode .edit-grid {
     <div id="layers"></div>
     <div class="edit-grid" id="editGrid" style="display:none"></div>
     <div id="editHandles"></div>
+    <div class="edit-banner" id="editBanner">EDIT-MODUS · Layer ziehen, an der Ecke skalieren, mit ✕ ausblenden</div>
   </div>
 </div>
 <div class="status-badge" id="statusBadge" style="display:none"></div>
@@ -961,7 +993,12 @@ body.edit-mode .edit-grid {
     if (debugMode) {
       statusBadge.style.display = "block";
       const cnt = (state.keywords || []).length;
-      statusBadge.textContent = "room=" + (state.room_id || room) + " kw=" + cnt + " scenes=" + (state.scenes_count || 0) + " upd=" + (state.updated_at ? new Date(state.updated_at * 1000).toLocaleTimeString() : "-");
+      const themeInfo = (state.layout || "?") + " · bg=" + (state.bg || "-") + " · accent=" + (state.accent || "-") + " · topicFont=" + (state.topic_font_family || "-");
+      statusBadge.innerHTML =
+        "room=" + escapeHtml(state.room_id || room) + " kw=" + cnt + " scenes=" + (state.scenes_count || 0) +
+        " upd=" + (state.updated_at ? new Date(state.updated_at * 1000).toLocaleTimeString() : "-") +
+        "<br>theme: " + escapeHtml(themeInfo);
+      try { console.log("[stage] applied state @", new Date().toISOString(), { layout: state.layout, bg: state.bg, accent: state.accent, fonts: { topic: state.topic_font_family, kw: state.keyword_font_family } }); } catch (e) {}
     }
   }
 

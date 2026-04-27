@@ -1,7 +1,10 @@
 streamlit>=1.35
 streamlit-autorefresh>=1.0.1
 streamlit-js-eval>=1.0.0
-TikTokLive>=6.0.0
+# Pin auf 6.6.5 — neuere TikTokLive-Versionen scheitern an
+# "Alters-Restriction" Lives, die ältere Releases problemlos verbinden.
+# Schwester-Repo `sustynats/ttlive` läuft mit dieser Version stabil.
+TikTokLive==6.6.5
 regex>=2024.5.15
 google-genai>=1.11.0
 requests>=2.32.0

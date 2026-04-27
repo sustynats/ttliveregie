@@ -1593,6 +1593,71 @@ def pdf_to_data_url(uploaded_file: Any) -> str:
     return f"data:application/pdf;base64,{encoded}"
 
 
+def pdf_viewer_srcdoc(pdf_data: str, title: str, zoom: int = 100) -> str:
+    return f"""
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        html, body {{ margin:0; width:100%; height:100%; overflow:hidden; background:#2a2d33; font-family:Arial, sans-serif; }}
+        #viewer {{ position:fixed; inset:0; overflow:auto; padding:46px 18px 18px; display:flex; flex-direction:column; align-items:center; gap:14px; }}
+        #bar {{ position:fixed; left:0; right:0; top:0; height:36px; display:flex; align-items:center; gap:8px; padding:5px 8px; background:rgba(0,0,0,.72); color:#fff; z-index:2; }}
+        button {{ height:26px; border:1px solid rgba(255,255,255,.25); background:#20242b; color:#fff; border-radius:6px; font-weight:800; }}
+        #title {{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:900; }}
+        canvas {{ max-width:100%; height:auto; background:#fff; box-shadow:0 10px 28px rgba(0,0,0,.35); }}
+        #status {{ color:#fff; font-size:13px; padding-top:70px; text-align:center; }}
+      </style>
+      <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs" type="module"></script>
+    </head>
+    <body>
+      <div id="bar"><button id="out">-</button><button id="in">+</button><span id="zoom">{zoom}%</span><span id="title">{html.escape(title)}</span></div>
+      <div id="viewer"><div id="status">PDF wird geladen...</div></div>
+      <script type="module">
+        const pdfjsLib = globalThis.pdfjsLib;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+        const dataUrl = {json.dumps(pdf_data)};
+        const viewer = document.getElementById("viewer");
+        const status = document.getElementById("status");
+        const zoomLabel = document.getElementById("zoom");
+        let pdf = null;
+        let scale = {max(0.5, min(2.0, zoom / 100)):.2f};
+        function bytesFromDataUrl(url) {{
+          const base64 = (url || "").split(",")[1] || "";
+          const raw = atob(base64);
+          const bytes = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+          return bytes;
+        }}
+        async function render() {{
+          if (!pdf) return;
+          viewer.innerHTML = "";
+          zoomLabel.textContent = Math.round(scale * 100) + "%";
+          for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {{
+            const page = await pdf.getPage(pageNo);
+            const viewport = page.getViewport({{ scale }});
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d");
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            viewer.appendChild(canvas);
+            await page.render({{ canvasContext: context, viewport }}).promise;
+          }}
+        }}
+        document.getElementById("in").onclick = () => {{ scale = Math.min(2.5, scale + .1); render(); }};
+        document.getElementById("out").onclick = () => {{ scale = Math.max(.4, scale - .1); render(); }};
+        try {{
+          pdf = await pdfjsLib.getDocument({{ data: bytesFromDataUrl(dataUrl) }}).promise;
+          await render();
+        }} catch (error) {{
+          status.textContent = "PDF konnte nicht gerendert werden: " + error.message;
+        }}
+      </script>
+    </body>
+    </html>
+    """
+
+
 def active_image_data() -> str:
     active_id = st.session_state.active_image_id
     for item in st.session_state.images:
@@ -2089,13 +2154,12 @@ def render_overlay_html(state: dict[str, Any]) -> str:
             )
     pdf_html = ""
     if not hidden and state.get("show_pdf") and state.get("pdf_data"):
-        pdf_src = f"{state.get('pdf_data')}#toolbar=1&navpanes=0&scrollbar=1&zoom={int(state.get('pdf_zoom', 100) or 100)}"
         pdf_title = html.escape(state.get("pdf_name") or "PDF")
         pdf_aspect = "portrait" if state.get("pdf_orientation", "Hochformat") == "Hochformat" else "landscape"
         pdf_html = (
             f'<div class="stage-pdf pdf-{pdf_aspect}" style="--px:{state.get("pdf_x",50)}%;--py:{state.get("pdf_y",54)}%;--pw:{state.get("pdf_width",76)}%;--ph:{state.get("pdf_height",72)}%;">'
             f'<div class="pdf-title">{pdf_title}</div>'
-            f'<iframe title="{pdf_title}" src="{html.escape(pdf_src)}"></iframe>'
+            f'<iframe title="{pdf_title}" srcdoc="{html.escape(pdf_viewer_srcdoc(state.get("pdf_data", ""), state.get("pdf_name", "PDF"), int(state.get("pdf_zoom", 100) or 100)))}"></iframe>'
             f'</div>'
         )
     ai_html = ""

@@ -312,6 +312,58 @@
       font-weight: 900;
       pointer-events: none;
     }
+    .pdf-viewer {
+      position: absolute;
+      inset: 0;
+      overflow: auto;
+      padding: 46px 18px 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      background: #2a2d33;
+    }
+    .pdf-toolbar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 36px;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      background: rgba(0,0,0,.72);
+      color: #fff;
+    }
+    .pdf-toolbar button {
+      height: 26px;
+      min-width: 30px;
+      border: 1px solid rgba(255,255,255,.25);
+      background: #20242b;
+      color: #fff;
+      border-radius: 6px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .pdf-toolbar span {
+      color: #fff;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .pdf-page {
+      max-width: 100%;
+      height: auto;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(0,0,0,.35);
+    }
+    .pdf-status {
+      color: #fff;
+      font-size: 13px;
+      padding-top: 70px;
+      text-align: center;
+    }
     .debug {
       position: absolute;
       left: 14px;
@@ -379,6 +431,9 @@
       var currentVideoKey = "";
       var currentWebsiteKey = "";
       var currentPdfKey = "";
+      var pdfJsLoading = null;
+      var pdfDoc = null;
+      var pdfScale = 1;
 
       if (transparent) document.body.classList.add("transparent");
       if (test) {
@@ -576,15 +631,62 @@
         layer.style.setProperty("--pdf-w", pdfW);
         layer.style.setProperty("--pdf-h", pdfH);
         var zoom = clamp(state.pdf_zoom || 100, 50, 200);
-        var src = state.pdf_data + "#toolbar=1&navpanes=0&scrollbar=1&zoom=" + zoom;
-        var key = src + "|" + (state.pdf_name || "");
+        var key = state.pdf_data + "|" + (state.pdf_name || "") + "|" + zoom;
         if (key !== currentPdfKey) {
           currentPdfKey = key;
+          pdfDoc = null;
+          pdfScale = zoom / 100;
           layer.innerHTML =
-            '<div class="pdf-title">' + escapeHtml(state.pdf_name || "PDF") + '</div>' +
-            '<iframe title="' + escapeHtml(state.pdf_name || "PDF") + '" src="' + src.replace(/"/g, "&quot;") + '"></iframe>';
+            '<div class="pdf-toolbar"><button id="pdfOut" type="button">-</button><button id="pdfIn" type="button">+</button><span id="pdfZoom">' + zoom + '%</span><span>' + escapeHtml(state.pdf_name || "PDF") + '</span></div>' +
+            '<div id="pdfViewer" class="pdf-viewer"><div class="pdf-status">PDF wird geladen...</div></div>';
+          document.getElementById("pdfIn").onclick = function () { pdfScale = Math.min(2.5, pdfScale + .1); renderPdfPages(); };
+          document.getElementById("pdfOut").onclick = function () { pdfScale = Math.max(.4, pdfScale - .1); renderPdfPages(); };
+          loadPdfJs().then(function () { return loadPdfDocument(state.pdf_data); }).catch(function (error) {
+            var viewer = document.getElementById("pdfViewer");
+            if (viewer) viewer.innerHTML = '<div class="pdf-status">PDF konnte nicht gerendert werden: ' + escapeHtml(error.message || String(error)) + '</div>';
+          });
         }
         layer.classList.remove("hidden");
+      }
+      function loadPdfJs() {
+        if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+        if (pdfJsLoading) return pdfJsLoading;
+        pdfJsLoading = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs").then(function (lib) {
+          window.pdfjsLib = lib;
+          lib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+          return lib;
+        });
+        return pdfJsLoading;
+      }
+      function bytesFromDataUrl(url) {
+        var base64 = (url || "").split(",")[1] || "";
+        var raw = atob(base64);
+        var bytes = new Uint8Array(raw.length);
+        for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        return bytes;
+      }
+      function loadPdfDocument(dataUrl) {
+        return window.pdfjsLib.getDocument({ data: bytesFromDataUrl(dataUrl) }).promise.then(function (doc) {
+          pdfDoc = doc;
+          return renderPdfPages();
+        });
+      }
+      async function renderPdfPages() {
+        var viewer = document.getElementById("pdfViewer");
+        var zoomLabel = document.getElementById("pdfZoom");
+        if (!viewer || !pdfDoc) return;
+        viewer.innerHTML = "";
+        if (zoomLabel) zoomLabel.textContent = Math.round(pdfScale * 100) + "%";
+        for (var pageNo = 1; pageNo <= pdfDoc.numPages; pageNo++) {
+          var page = await pdfDoc.getPage(pageNo);
+          var viewport = page.getViewport({ scale: pdfScale });
+          var canvas = document.createElement("canvas");
+          canvas.className = "pdf-page";
+          canvas.width = Math.floor(viewport.width);
+          canvas.height = Math.floor(viewport.height);
+          viewer.appendChild(canvas);
+          await page.render({ canvasContext: canvas.getContext("2d"), viewport: viewport }).promise;
+        }
       }
       document.getElementById("videoBack").addEventListener("click", function () {
         var video = document.getElementById("stageVideo");

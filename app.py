@@ -1531,10 +1531,9 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     manual_words = [] if state.get("minimal_mode") else state.get("manual_cloud_words", [])
     topic = html.escape(state.get("topic") or "")
     highlight = html.escape(state.get("highlight_word") or "")
-    clock = time.strftime("%H:%M")
     live_duration_text = html.escape(state.get("live_duration") or "00:00:00")
     live_started_at = state.get("live_started_at")
-    live_start_text = time.strftime("%H:%M:%S", time.localtime(live_started_at)) if live_started_at else "--:--:--"
+    live_since_time = time.strftime("%H:%M:%S", time.localtime(live_started_at)) if live_started_at else "--:--:--"
     remaining = int(state.get("countdown_remaining") or 0)
     total = max(1, int(state.get("countdown_total") or 1))
     countdown_pct = max(0, min(100, remaining / total * 100))
@@ -1629,8 +1628,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     cloud_html = "" if hidden or not state.get("show_cloud") else f'<div class="cloud cloud-{cloud_slug}">{map_lines}{"".join(keyword_nodes)}{"".join(manual_nodes)}</div>'
     live_since = ""
     if state.get("show_live_since"):
-        live_since = f'<span>live seit {live_duration_text}</span><small>Start {live_start_text}</small>'
-    clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock"><b>LIVE {clock}</b>{live_since}</div>'
+        live_since = f'<span>Live seit {live_since_time}</span>'
+    clock_html = "" if hidden or not state.get("show_clock") else f'<div class="live-clock"><b>LIVE {live_duration_text}</b>{live_since}</div>'
     countdown_html = ""
     if not hidden and state.get("show_countdown"):
         countdown_html = (

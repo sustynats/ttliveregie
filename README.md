@@ -15,7 +15,8 @@ Dann im Browser oeffnen:
 
 - Regiepult: `http://localhost:8501`
 - Overlay-only: `http://localhost:8501?overlay=1`
-- Host-gebundene Browserquelle: im Regiepult unter `Persistenz / Backup` die geheime Overlay-ID nutzen, z. B. `http://localhost:8501/?overlay=1&room=deine-id`
+- TT-Live-Studio-Browserquelle: im Regiepult unter `Persistenz / Backup` den Link `TT Live Studio Browserquelle` nutzen, z. B. `http://localhost:8501/app/static/browser_overlay.html?overlay=1&room=deine-id`
+- Debug/Test/Transparent: `...?overlay=1&debug=1&room=deine-id`, `...?overlay=1&test=1` oder `...?overlay=1&bg=transparent&room=deine-id`
 
 ## Nutzung mit TikTok Live Studio
 
@@ -32,8 +33,9 @@ Dann im Browser oeffnen:
 11. Unter `KI-Check` eine kurze sichtbare Zusammenfassung erzeugen und als Karte auf die Buehne legen. Die maximale Antwortlaenge ist bis 3000 Zeichen einstellbar.
 12. Szenen speichern, ueberschreiben, duplizieren, umbenennen, loeschen, importieren und exportieren.
 13. Settings, Szenen und Bildbibliothek werden pro Browser/Host im Browser localStorage gespeichert; zusaetzlich schreibt die App pro Browser-ID eine lokale JSON-Fallback-Datei.
-14. In TikTok Live Studio eine Browserquelle mit der geheimen Host-URL aus `Persistenz / Backup` anlegen: `...?overlay=1&room=...`.
-15. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
+14. In TikTok Live Studio eine Browserquelle mit `TT Live Studio Browserquelle` aus `Persistenz / Backup` anlegen. Diese URL zeigt eine statische HTML/CSS/JS-Seite und pollt alle 2,5 Sekunden den Overlay-State, statt die Streamlit-Oberflaeche zu laden.
+15. Falls noetig: `Debug Browserquelle` zeigt Room-ID, Elementanzahl, Szenenanzahl und letzten Refresh. `Test Browserquelle` muss gross `TT LIVE STUDIO TEST OK` anzeigen.
+16. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
 
 Wenn die Buehne durch Bild-/Overlay-Regler zu dunkel wird, oben im Regiepult `Aufhellen` oder im Bildbereich `Buehne aufhellen` klicken.
 
@@ -42,6 +44,7 @@ Wenn die Buehne durch Bild-/Overlay-Regler zu dunkel wird, oben im Regiepult `Au
 1. Repository mit `app.py` und `requirements.txt` deployen.
 2. Main file path: `app.py`.
 3. Nach dem Deploy die App im Browser oeffnen. Browser-Speicherung funktioniert getrennt pro Browser/Geraet ueber localStorage.
+4. Static Serving ist in `.streamlit/config.toml` aktiviert, damit TikTok Live Studio die einfache Browserquellen-Datei unter `/app/static/browser_overlay.html` laden kann.
 
 Optional fuer den KI-Check in den Streamlit-Secrets hinterlegen:
 

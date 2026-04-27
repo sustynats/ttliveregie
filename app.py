@@ -57,6 +57,8 @@ except Exception:  # TikTokLive may be installed after first launch.
 APP_DIR = Path(__file__).parent
 RUNTIME_STATE_FILE = APP_DIR / ".overlay_runtime_state.json"
 SERVER_STATE_DIR = APP_DIR / ".ttliveregie_profiles"
+STATIC_DIR = APP_DIR / "static"
+STATIC_OVERLAY_FILE = STATIC_DIR / "browser_overlay.html"
 LOCAL_STORAGE_KEY = "ttliveregie_state_v2"
 LOCAL_BROWSER_ID_KEY = "ttliveregie_browser_id_v1"
 COMMENT_WINDOW_SECONDS = 4 * 60
@@ -1035,6 +1037,18 @@ def profile_state_file(browser_id: str | None = None) -> Path:
 def room_state_file(room_id: str | None = None) -> Path:
     SERVER_STATE_DIR.mkdir(exist_ok=True)
     return SERVER_STATE_DIR / f"room_{safe_profile_id(room_id or st.session_state.get('overlay_room_id', 'default'))}.json"
+
+
+def static_state_file(room_id: str | None = None) -> Path:
+    STATIC_DIR.mkdir(exist_ok=True)
+    return STATIC_DIR / f"overlay_state_{safe_profile_id(room_id or st.session_state.get('overlay_room_id', 'default'))}.json"
+
+
+def static_overlay_url(base_url: str, room_id: str, **params: str) -> str:
+    query = {"overlay": "1", "room": safe_profile_id(room_id)}
+    query.update({key: value for key, value in params.items() if value})
+    encoded = "&".join(f"{key}={value}" for key, value in query.items())
+    return f"{base_url.rstrip('/')}/app/static/{STATIC_OVERLAY_FILE.name}?{encoded}"
 
 
 def apply_persistent_payload(payload: dict[str, Any]) -> None:
@@ -2245,10 +2259,15 @@ def current_overlay_state() -> dict[str, Any]:
 
 def persist_overlay_state() -> None:
     data = current_overlay_state()
+    data["updated_at"] = time.time()
+    data["room_id"] = st.session_state.overlay_room_id
+    data["scenes_count"] = len(st.session_state.get("scenes", {}))
     safe = json.dumps(data, ensure_ascii=False)
     RUNTIME_STATE_FILE.write_text(safe, encoding="utf-8")
     try:
         room_state_file(st.session_state.overlay_room_id).write_text(safe, encoding="utf-8")
+        static_state_file(st.session_state.overlay_room_id).write_text(safe, encoding="utf-8")
+        static_state_file("default").write_text(safe, encoding="utf-8")
     except Exception:
         pass
 
@@ -2280,6 +2299,38 @@ def load_overlay_state() -> dict[str, Any]:
 
 def render_stage(state: dict[str, Any], height: int = 860) -> None:
     st.components.v1.html(render_overlay_html(state), height=height, scrolling=False)
+
+
+def render_static_overlay_redirect() -> None:
+    room = safe_profile_id(st.query_params.get("room", st.session_state.overlay_room_id))
+    params = {
+        "debug": st.query_params.get("debug", ""),
+        "test": st.query_params.get("test", ""),
+        "bg": st.query_params.get("bg", ""),
+        "transparent": st.query_params.get("transparent", ""),
+    }
+    target = static_overlay_url("", room, **params)
+    st.markdown(
+        f"""
+        <style>
+        html, body, .stApp, .block-container {{
+            margin:0 !important; padding:0 !important; width:100vw !important; height:100vh !important;
+            overflow:hidden !important; background:#050608 !important;
+        }}
+        [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer, #MainMenu {{
+            display:none !important;
+        }}
+        .overlay-redirect {{
+            position:fixed; inset:0; display:grid; place-items:center; background:#050608; color:#fff;
+            font:800 24px system-ui, sans-serif;
+        }}
+        </style>
+        <meta http-equiv="refresh" content="0; url={html.escape(target)}">
+        <script>window.location.replace({json.dumps(target)});</script>
+        <div class="overlay-redirect">Overlay wird geladen...</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2846,10 +2897,18 @@ def render_persistence_panel() -> None:
     st.session_state.overlay_room_id = safe_profile_id(
         st.text_input("Geheime Host-Overlay-ID", value=st.session_state.overlay_room_id, help="Diese ID verbindet Regiepult und Browserquelle. Sie ist nicht an den TikTok-Usernamen gebunden.")
     )
+    static_cloud_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id)
+    static_local_url = static_overlay_url("http://localhost:8501", st.session_state.overlay_room_id)
     cloud_url = f"https://ttliveregie.streamlit.app/?overlay=1&room={st.session_state.overlay_room_id}"
-    local_url = f"http://localhost:8501/?overlay=1&room={st.session_state.overlay_room_id}"
-    render_copyable_url("Streamlit-Cloud Browserquelle", cloud_url, "cloud_overlay")
-    render_copyable_url("Lokale Browserquelle", local_url, "local_overlay")
+    debug_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, debug="1")
+    transparent_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, bg="transparent")
+    test_url = "https://ttliveregie.streamlit.app/app/static/browser_overlay.html?overlay=1&test=1"
+    render_copyable_url("TT Live Studio Browserquelle", static_cloud_url, "ttls_overlay")
+    render_copyable_url("TTLS Transparent", transparent_url, "ttls_transparent_overlay")
+    render_copyable_url("Lokale TTLS Browserquelle", static_local_url, "ttls_local_overlay")
+    render_copyable_url("Debug Browserquelle", debug_url, "debug_overlay")
+    render_copyable_url("Test Browserquelle", test_url, "test_overlay")
+    render_copyable_url("Streamlit-Fallback", cloud_url, "cloud_overlay")
     if st.button("Neue geheime Overlay-ID erzeugen", key="room_rotate", use_container_width=True):
         st.session_state.overlay_room_id = safe_profile_id(str(uuid.uuid4()))[:18]
         save_persisted_state("rotate_room")
@@ -2935,6 +2994,9 @@ def main() -> None:
     update_countdown()
 
     if overlay_mode:
+        if st.query_params.get("native", "0") != "1":
+            render_static_overlay_redirect()
+            return
         state = load_overlay_state()
         st.components.v1.html(render_overlay_html(state), height=1080, scrolling=False)
         return

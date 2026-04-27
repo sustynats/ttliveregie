@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TT Live Regie Overlay</title>
+  <style>
+    :root {
+      --bg: #050608;
+      --text: #fff7ea;
+      --muted: #d6c9b8;
+      --accent: #ff4fd8;
+      --accent2: #29f3ff;
+      --panel: rgba(8, 10, 16, .62);
+      --cloud-x: 50%;
+      --cloud-y: 50%;
+      --cloud-w: 58%;
+      --cloud-h: 58%;
+      --dim: .22;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #050608;
+      color: var(--text);
+      font-family: Inter, Arial, Helvetica, system-ui, sans-serif;
+    }
+    body.transparent { background: transparent; }
+    .stage-wrap {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: transparent;
+    }
+    .stage {
+      position: relative;
+      width: min(74vh, 100vw);
+      height: 100vh;
+      max-width: 100vw;
+      max-height: 100vh;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 76% 18%, rgba(255, 79, 216, .22), transparent 30%),
+        radial-gradient(circle at 10% 78%, rgba(41, 243, 255, .20), transparent 34%),
+        var(--bg);
+      isolation: isolate;
+    }
+    body.transparent .stage { background: transparent; }
+    .stage.frame { outline: 1px solid rgba(255, 79, 216, .45); outline-offset: -1px; }
+    .bg {
+      position: absolute;
+      inset: -5%;
+      z-index: -4;
+      background-repeat: no-repeat;
+      background-size: cover;
+      background-position: 50% 50%;
+      opacity: 1;
+      filter: brightness(1.05);
+      transform: scale(1);
+    }
+    .veil {
+      position: absolute;
+      inset: 0;
+      z-index: -3;
+      background:
+        linear-gradient(90deg, rgba(0,0,0,var(--dim)), rgba(0,0,0,.08) 62%, rgba(0,0,0,.04)),
+        linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,var(--dim)));
+      pointer-events: none;
+    }
+    body.transparent .veil { background: transparent; }
+    .topic {
+      position: absolute;
+      left: 7%;
+      top: 7%;
+      width: 70%;
+      font-size: clamp(38px, 7.8vw, 82px);
+      line-height: .96;
+      font-weight: 900;
+      letter-spacing: 0;
+      text-shadow: 0 10px 32px rgba(0,0,0,.50);
+      z-index: 4;
+    }
+    .topic:after {
+      content: "";
+      display: block;
+      width: 76px;
+      height: 4px;
+      margin-top: 18px;
+      border-radius: 99px;
+      background: var(--accent);
+      box-shadow: 0 0 24px rgba(255, 79, 216, .70);
+    }
+    .clock {
+      position: absolute;
+      top: 7%;
+      right: 8%;
+      z-index: 6;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 10px 14px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 999px;
+      background: var(--panel);
+      font-weight: 900;
+      font-size: clamp(14px, 1.7vw, 20px);
+      line-height: 1.08;
+      backdrop-filter: blur(12px);
+    }
+    .clock span { color: var(--muted); font-size: .76em; }
+    .cloud {
+      position: absolute;
+      left: var(--cloud-x);
+      top: var(--cloud-y);
+      width: var(--cloud-w);
+      height: var(--cloud-h);
+      transform: translate(-50%, -50%);
+      z-index: 5;
+    }
+    .kw {
+      position: absolute;
+      left: var(--x);
+      top: var(--y);
+      transform: translate(-50%, -50%) rotate(var(--r)) scale(var(--s));
+      transform-origin: center;
+      white-space: nowrap;
+      padding: .18rem .42rem;
+      border-radius: 8px;
+      background: rgba(10, 12, 20, .64);
+      border: 1px solid rgba(255,255,255,.16);
+      color: var(--text);
+      font-size: clamp(13px, 2.2vw, 24px);
+      line-height: 1;
+      font-weight: var(--w);
+      text-shadow: 0 4px 18px rgba(0,0,0,.36);
+      box-shadow: 0 10px 26px rgba(0,0,0,.18);
+      animation: floaty var(--d) ease-in-out infinite;
+      animation-delay: var(--delay);
+    }
+    .kw.c0 { color: var(--accent); }
+    .kw.c1 { color: var(--accent2); }
+    .kw.c2 { color: #b8ff4f; }
+    .kw.c3 { color: #fff7ea; }
+    .kw.c4 { color: #ffd166; }
+    .kw.c5 { color: #ff7a7a; }
+    .kw.manual {
+      z-index: 8;
+      text-transform: uppercase;
+      color: #ffffff;
+      background: linear-gradient(90deg, rgba(255,79,216,.52), rgba(41,243,255,.36));
+      border-color: rgba(255,255,255,.42);
+      box-shadow: 0 0 42px rgba(255,79,216,.45), 0 14px 34px rgba(0,0,0,.32);
+    }
+    .countdown {
+      position: absolute;
+      left: 7%;
+      bottom: 18%;
+      z-index: 6;
+      min-width: 220px;
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.18);
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+    }
+    .countdown b { display: block; color: var(--muted); font-size: 14px; }
+    .countdown span { display: block; font-size: 34px; font-weight: 900; line-height: 1; margin-top: 2px; }
+    .debug {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      z-index: 20;
+      width: min(420px, calc(100% - 28px));
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(41,243,255,.55);
+      background: rgba(0,0,0,.76);
+      color: #eaffff;
+      font: 700 13px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre-line;
+    }
+    .test {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #ff2bd6, #18e7ff 48%, #d9ff42);
+      color: #07070c;
+      font: 1000 clamp(44px, 9vw, 110px)/.95 Arial, Helvetica, sans-serif;
+      text-align: center;
+      padding: 8vw;
+      letter-spacing: 0;
+    }
+    .hidden { display: none !important; }
+    @keyframes floaty {
+      0%, 100% { transform: translate(-50%, -50%) rotate(var(--r)) scale(var(--s)); opacity: .86; }
+      50% { transform: translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div id="test" class="test hidden">TT LIVE STUDIO TEST OK</div>
+  <div class="stage-wrap">
+    <main id="stage" class="stage frame">
+      <div id="bg" class="bg"></div>
+      <div class="veil"></div>
+      <div id="topic" class="topic"></div>
+      <div id="clock" class="clock"></div>
+      <div id="cloud" class="cloud"></div>
+      <div id="countdown" class="countdown hidden"></div>
+      <div id="debug" class="debug hidden"></div>
+    </main>
+  </div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var room = (params.get("room") || "default").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || "default";
+      var debug = params.get("debug") === "1";
+      var test = params.get("test") === "1";
+      var transparent = params.get("transparent") === "1" || params.get("bg") === "transparent";
+      var pollMs = Math.max(1000, Number(params.get("poll") || 2500));
+      var lastState = null;
+
+      if (transparent) document.body.classList.add("transparent");
+      if (test) {
+        document.getElementById("test").classList.remove("hidden");
+        if (debug) setDebug("Overlay geladen\nTestmodus aktiv\nRoom-ID: " + room + "\nletzter Refresh: " + new Date().toLocaleTimeString());
+        return;
+      }
+
+      function escText(value) {
+        return value == null ? "" : String(value);
+      }
+      function clamp(value, min, max) {
+        value = Number(value);
+        if (!isFinite(value)) return min;
+        return Math.max(min, Math.min(max, value));
+      }
+      function setDebug(text) {
+        var node = document.getElementById("debug");
+        node.textContent = text;
+        node.classList.remove("hidden");
+      }
+      function safeTime(ts) {
+        if (!ts) return "--:--:--";
+        try { return new Date(ts * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+        catch (e) { return "--:--:--"; }
+      }
+      function positionFor(word, idx, total) {
+        var hash = 0;
+        var text = String(word || "") + idx;
+        for (var i = 0; i < text.length; i++) hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+        var angle = (idx / Math.max(1, total)) * Math.PI * 2 + (Math.abs(hash) % 35) / 20;
+        var radius = 8 + (idx % 5) * 7;
+        return {
+          x: clamp(50 + Math.cos(angle) * radius + (Math.abs(hash) % 9) - 4, 8, 92),
+          y: clamp(50 + Math.sin(angle * 1.15) * radius * .86 + ((Math.abs(hash) >> 4) % 9) - 4, 10, 90),
+          r: idx % 8 === 0 ? 90 : [-6, -2, 0, 0, 4, 7][idx % 6]
+        };
+      }
+      function render(state) {
+        lastState = state || {};
+        var root = document.documentElement;
+        var stage = document.getElementById("stage");
+        var bg = document.getElementById("bg");
+        var topic = document.getElementById("topic");
+        var clock = document.getElementById("clock");
+        var cloud = document.getElementById("cloud");
+        var countdown = document.getElementById("countdown");
+        var hidden = !!state.clear_overlay;
+        var showCloud = !!state.show_cloud && !hidden && !state.minimal_mode;
+
+        root.style.setProperty("--cloud-x", clamp(state.cloud_pos_x || 50, 0, 100) + "%");
+        root.style.setProperty("--cloud-y", clamp(state.cloud_pos_y || 50, 0, 100) + "%");
+        root.style.setProperty("--cloud-w", clamp(state.cloud_width || 58, 35, 95) + "%");
+        root.style.setProperty("--cloud-h", clamp(state.cloud_height || 58, 35, 95) + "%");
+        root.style.setProperty("--dim", clamp((state.bg_dim || 22) / 100, 0, .55));
+
+        stage.className = "stage" + (state.show_overlay_frame !== false ? " frame" : "");
+        if (state.active_image_data && state.show_background !== false) {
+          bg.style.backgroundImage = "url(" + JSON.stringify(state.active_image_data) + ")";
+          bg.style.backgroundSize = state.bg_fit || "cover";
+          bg.style.backgroundPosition = (state.bg_pos_x || 50) + "% " + (state.bg_pos_y || 50) + "%";
+          bg.style.opacity = clamp((state.bg_opacity || 100) / 100, 0, 1);
+          bg.style.filter = "blur(" + clamp(state.bg_blur || 0, 0, 40) + "px) brightness(" + clamp(state.bg_brightness || 105, 20, 180) + "%)";
+          bg.style.transform = "scale(" + clamp((state.bg_zoom || 100) / 100, .5, 2) + ")";
+        } else {
+          bg.style.backgroundImage = "";
+        }
+
+        topic.textContent = (!hidden && state.show_topic !== false) ? escText(state.topic || "") : "";
+        topic.style.fontSize = "calc(clamp(38px, 7.8vw, 82px) * " + clamp((state.topic_text_size || 100) / 100, .4, 2.4) + ")";
+
+        if (!hidden && state.show_clock !== false) {
+          clock.innerHTML = "<b>LIVE " + escText(state.live_duration || "00:00:00") + "</b>" +
+            (state.show_live_since === false ? "" : "<span>Live seit " + safeTime(state.live_started_at) + "</span>");
+          clock.classList.remove("hidden");
+        } else {
+          clock.classList.add("hidden");
+        }
+
+        cloud.innerHTML = "";
+        if (showCloud) {
+          var keywords = Array.isArray(state.keywords) ? state.keywords.slice(0, 32) : [];
+          var manual = Array.isArray(state.manual_cloud_words) ? state.manual_cloud_words.slice(0, 10) : [];
+          var all = keywords.concat(manual.map(function (word, idx) { return { word: word, size: 1.55 - idx * .08, manual: true }; }));
+          var baseSize = clamp((state.keyword_size || 60) / 100, .45, 2);
+          all.forEach(function (item, idx) {
+            var pos = positionFor(item.word, idx, all.length);
+            var node = document.createElement("span");
+            node.className = "kw c" + (idx % 6) + (item.manual ? " manual" : "");
+            node.textContent = item.word;
+            node.style.setProperty("--x", pos.x + "%");
+            node.style.setProperty("--y", pos.y + "%");
+            node.style.setProperty("--r", pos.r + "deg");
+            node.style.setProperty("--s", Math.max(.72, (Number(item.size) || 1) * baseSize).toFixed(2));
+            node.style.setProperty("--w", item.manual ? "950" : String(state.keyword_font_weight || 780));
+            node.style.setProperty("--d", (9 + (idx % 5) * 1.4) + "s");
+            node.style.setProperty("--delay", ((idx % 8) * -.7) + "s");
+            cloud.appendChild(node);
+          });
+        }
+
+        if (!hidden && state.show_countdown) {
+          var remaining = Math.max(0, Number(state.countdown_remaining || 0));
+          var minutes = Math.floor(remaining / 60);
+          var seconds = Math.floor(remaining % 60);
+          countdown.innerHTML = "<b>" + escText(state.countdown_title || "") + "</b><span>" +
+            String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0") + "</span>";
+          countdown.classList.remove("hidden");
+        } else {
+          countdown.classList.add("hidden");
+        }
+
+        if (debug) {
+          var count = (Array.isArray(state.keywords) ? state.keywords.length : 0) + (Array.isArray(state.manual_cloud_words) ? state.manual_cloud_words.length : 0);
+          setDebug("Overlay geladen\nRoom-ID: " + room + "\nElemente: " + count + "\nSzenen: " + (state.scenes_count || 0) + "\nletzter Refresh: " + new Date().toLocaleTimeString() + "\nState: " + (state.updated_at ? safeTime(state.updated_at) : "fallback/leer"));
+        }
+      }
+      function fallbackState() {
+        return {
+          topic: "Overlay bereit",
+          show_topic: true,
+          show_cloud: true,
+          show_clock: true,
+          show_overlay_frame: true,
+          live_duration: "00:00:00",
+          live_started_at: null,
+          cloud_pos_x: 50,
+          cloud_pos_y: 50,
+          cloud_width: 58,
+          cloud_height: 58,
+          keyword_size: 60,
+          keywords: [
+            { word: "browserquelle", size: 1.15 },
+            { word: "bereit", size: 1.05 },
+            { word: "live", size: .95 }
+          ],
+          manual_cloud_words: [],
+          scenes_count: 0
+        };
+      }
+      function poll() {
+        var url = "overlay_state_" + room + ".json?t=" + Date.now();
+        fetch(url, { cache: "no-store" })
+          .then(function (res) {
+            if (!res.ok) throw new Error("state " + res.status);
+            return res.json();
+          })
+          .then(render)
+          .catch(function (err) {
+            if (lastState) {
+              if (debug) setDebug("Overlay geladen\nRoom-ID: " + room + "\nletzter Refresh: " + new Date().toLocaleTimeString() + "\nPolling-Fehler: " + err.message);
+              return;
+            }
+            render(fallbackState());
+          });
+      }
+      poll();
+      window.setInterval(poll, pollMs);
+    })();
+  </script>
+</body>
+</html>

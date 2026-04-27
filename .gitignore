@@ -4,3 +4,4 @@ __pycache__/
 .overlay_runtime_state.json
 .ttliveregie_state.json
 .ttliveregie_profiles/
+static/overlay_state_*.json

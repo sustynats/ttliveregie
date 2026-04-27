@@ -893,6 +893,8 @@ def init_state() -> None:
         "website_preview_text": "",
         "website_preview_image": "",
         "website_preview_error": "",
+        "neko_url": "",
+        "neko_password": "",
         "website_proxy_html": "",
         "website_proxy_error": "",
         "website_x": 50,
@@ -2479,8 +2481,16 @@ def current_overlay_state() -> dict[str, Any]:
     with rt.lock:
         live_started_at = rt.started_at
     live_duration = format_duration(time.time() - live_started_at) if live_started_at else "00:00:00"
-    # Theme-Farben mit reinschreiben, damit stage.html sie direkt setzen kann
-    theme = THEMES.get(st.session_state.layout, THEMES["Editorial Dark"])
+    # Theme-Farben mit reinschreiben. WICHTIG: Wir nehmen das aktuell
+    # gewählte Theme aus THEMES[layout] und MERGEN es kompromisslos in den
+    # State — auch wenn snapshot_scene() ältere Werte aus Backups
+    # mitschleppt. Die Theme-Felder kommen IMMER aus THEMES[layout],
+    # niemals aus dem persistierten State.
+    layout = st.session_state.layout
+    if layout not in THEMES:
+        layout = "Editorial Dark"
+    theme = THEMES[layout]
+    state["layout"] = layout
     state.update(
         {
             "keywords": st.session_state.keywords or st.session_state.get("last_keywords_snapshot", []),
@@ -2494,14 +2504,20 @@ def current_overlay_state() -> dict[str, Any]:
             "live_duration": live_duration,
             "sentiment": chat_sentiment_state(),
             "stage_edit_mode": st.session_state.get("stage_edit_mode", False),
-            "bg": theme.get("bg", "#050608"),
-            "panel": theme.get("panel", "rgba(8,10,16,.62)"),
-            "text_color": theme.get("text", "#fff7ea"),
-            "muted": theme.get("muted", "#d6c9b8"),
-            "accent": theme.get("accent", "#ff4fd8"),
-            "accent2": theme.get("accent2", "#29f3ff"),
-            "accent3": theme.get("accent3", "#f8ff4d"),
-            "glow": theme.get("glow", "rgba(255,79,216,.30)"),
+            "bg": theme.get("bg") or "#050608",
+            "panel": theme.get("panel") or "rgba(8,10,16,.62)",
+            # Achtung: Schlüssel heißt im Theme "text", auf der Bühne "text_color".
+            # NIE state["text"] schreiben — das würde mit der Topic-Headline
+            # kollidieren (snapshot_scene hat "topic", aber alte Backups
+            # könnten "text" enthalten).
+            "text_color": theme.get("text") or "#fff7ea",
+            "muted": theme.get("muted") or "#d6c9b8",
+            "accent": theme.get("accent") or "#ff4fd8",
+            "accent2": theme.get("accent2") or "#29f3ff",
+            "accent3": theme.get("accent3") or "#f8ff4d",
+            "glow": theme.get("glow") or "rgba(255,79,216,.30)",
+            "neko_url": st.session_state.get("neko_url", ""),
+            "neko_password": st.session_state.get("neko_password", ""),
             "website_og": {
                 "title": st.session_state.get("website_preview_title", ""),
                 "description": st.session_state.get("website_preview_text", ""),
@@ -2509,6 +2525,11 @@ def current_overlay_state() -> dict[str, Any]:
             },
         }
     )
+    # Defensive: falls aus alten Backups noch ein "text"-Feld in state
+    # steht (von früheren Refactors), löschen wir es hier — sonst greift
+    # in stage.html die `state.text_color || state.text`-Fallback-Kette
+    # auf die Topic-Headline und färbt damit die Schrift.
+    state.pop("text", None)
     if st.session_state.auto_highlight and not st.session_state.highlight_word and st.session_state.keywords:
         state["highlight_word"] = st.session_state.keywords[0]["word"]
     return state
@@ -2575,7 +2596,7 @@ def render_stage(state: dict[str, Any], height: int = 860) -> None:
         'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'
         'iframe{display:block;width:100%;height:100%;border:0;background:#050608;}'
         '</style></head><body>'
-        f'<iframe id="stageframe" src="{html.escape(src)}" allow="autoplay; encrypted-media; fullscreen" referrerpolicy="no-referrer"></iframe>'
+        f'<iframe id="stageframe" src="{html.escape(src)}" allow="autoplay; encrypted-media; fullscreen; microphone; camera; clipboard-read; clipboard-write" referrerpolicy="no-referrer"></iframe>'
         '<script>'
         'window.addEventListener("message", function (ev) {'
         '  if (!ev.data || ev.data.type !== "ttl-stage-edit") return;'
@@ -3133,10 +3154,41 @@ def render_media_panel() -> None:
     st.toggle("Website anzeigen", key="show_website")
     st.selectbox(
         "Website Darstellung",
-        ["Auto", "Screenshot", "Website-Proxy", "Website-Vorschau", "Interaktiver Browser", "Link-Karte"],
+        ["Auto", "Screenshot", "Website-Proxy", "Website-Vorschau", "Interaktiver Browser", "Link-Karte", "Mini-Browser (Neko)"],
         key="website_mode",
-        help="Auto: erst iframe versuchen, bei bekannten Blockern direkt Screenshot. Screenshot: image.thum.io. Vorschau/Link-Karte: OG-Daten.",
+        help="Auto: erst iframe, bei Blockern Screenshot. Screenshot: image.thum.io. Mini-Browser (Neko): echter klickbarer Browser via selbst-gehostetem Neko-Server (siehe README).",
     )
+
+    with st.expander("Mini-Browser (Neko) Setup", expanded=False):
+        st.caption(
+            "Streamlit Cloud kann selbst keinen echten Browser hosten. Mit einem "
+            "selbst-gehosteten Neko-Server (https://github.com/m1k1o/neko, ~5 €/Monat "
+            "auf Hetzner) bekommst du einen WebRTC-Browser, den du auf der Bühne "
+            "klicken/scrollen kannst. Anleitung im README → Abschnitt **Mini-Browser via Neko**."
+        )
+        st.session_state.neko_url = st.text_input(
+            "Neko-URL",
+            value=st.session_state.get("neko_url", ""),
+            placeholder="https://neko.example.com",
+            help="Vollständige HTTPS-URL deines Neko-Servers. Empfehlung: passwortgeschützt, kein public-shared.",
+        )
+        st.session_state.neko_password = st.text_input(
+            "Neko-Passwort (optional)",
+            value=st.session_state.get("neko_password", ""),
+            type="password",
+            help="Wenn dein Neko-Server NEKO_PASSWORD setzt, kannst du es hier hinterlegen — wird nur als Hinweis im Embed angezeigt.",
+        )
+        cn1, cn2 = st.columns(2)
+        if cn1.button("Mini-Browser aktivieren", key="neko_activate", use_container_width=True):
+            if st.session_state.neko_url:
+                st.session_state.website_mode = "Mini-Browser (Neko)"
+                st.session_state.show_website = True
+                st.success("Mini-Browser-Modus aktiv. Bühne lädt jetzt deinen Neko-Server.")
+            else:
+                st.warning("Bitte erst eine Neko-URL eingeben.")
+        if cn2.button("Mini-Browser deaktivieren", key="neko_deactivate", use_container_width=True):
+            st.session_state.website_mode = "Auto"
+            st.success("Zurück zum Auto-Modus.")
     if st.session_state.website_url and is_known_iframe_blocked(st.session_state.website_url):
         st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Website-Vorschau, Link-Karte oder eine offizielle Embed-/Video-URL.")
     c3, c4 = st.columns(2)
@@ -3437,6 +3489,13 @@ def main() -> None:
     st.markdown(css_for_streamlit(), unsafe_allow_html=True)
     apply_stage_editor_params()
     drain_stage_edit_queue()
+    # Sync zwischen Topbar-Toggle und Sichtbarkeits-Panel-Toggle:
+    # `stage_edit_mode` ist die kanonische Quelle, `stage_edit_topbar` ist
+    # nur der Widget-State der Topbar. Beide Richtungen werden auf jeden
+    # Rerun zueinander gezogen.
+    canonical = bool(st.session_state.get("stage_edit_mode"))
+    if st.session_state.get("stage_edit_topbar") != canonical:
+        st.session_state.stage_edit_topbar = canonical
     # Auto-refresh: nur dann nötig, wenn der Live-Chat tickt (neue Keywords)
     # ODER ein Countdown läuft. Beim reinen Style-/Layout-Editieren wäre ein
     # 4s-Refresh schädlich — er triggert Re-Renders der Sidebar und damit
@@ -3460,14 +3519,34 @@ def main() -> None:
             render_control_panel()
     with right:
         with st.container(key="stage_panel_fixed"):
-            top_cols = st.columns([1, 0.22])
+            # Topbar mit prominentem Edit-Toggle. Eigener Key (`stage_edit_topbar`)
+            # damit es keine Streamlit-Key-Kollision mit dem Toggle in der
+            # Sichtbarkeits-Sektion gibt; Sync via on_change in beide Richtungen.
+            if "stage_edit_topbar" not in st.session_state:
+                st.session_state.stage_edit_topbar = bool(st.session_state.get("stage_edit_mode"))
+
+            def _sync_edit_topbar() -> None:
+                st.session_state.stage_edit_mode = bool(st.session_state.stage_edit_topbar)
+
+            top_cols = st.columns([0.45, 0.30, 0.25])
             with top_cols[0]:
-                edit_label = "Edit-Modus AKTIV" if st.session_state.get("stage_edit_mode") else "Bühne"
+                edit_label = "✏️ Bühne · EDIT" if st.session_state.get("stage_edit_mode") else "Bühne"
                 st.markdown(f"### {edit_label}")
             with top_cols[1]:
+                st.toggle(
+                    "✏️ Edit-Modus",
+                    key="stage_edit_topbar",
+                    on_change=_sync_edit_topbar,
+                    help="Layer auf der Bühne direkt verschieben, skalieren oder mit ✕ ausblenden.",
+                )
+            with top_cols[2]:
                 st.selectbox("Format", ["9:16", "16:9"], key="aspect", label_visibility="collapsed")
             if st.session_state.get("stage_edit_mode"):
-                st.info("Edit-Modus aktiv — Layer auf der Bühne ziehen, skalieren oder mit ✕ ausblenden. Im Tab **Bühne › Sichtbarkeit** wieder einblenden.", icon="✏️")
+                st.info(
+                    "**Edit-Modus aktiv** — gestrichelte Cyan-Rahmen auf der Bühne ziehen, an der Ecke ↘ skalieren, mit ✕ ausblenden. "
+                    "Wenn nichts erscheint: `?debug=1` an die Bühnen-URL hängen, um Diagnose-Banner einzublenden.",
+                    icon="✏️",
+                )
             render_stage(current_overlay_state(), height=900)
     save_persisted_state("auto")
 

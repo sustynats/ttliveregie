@@ -65,3 +65,75 @@ Alternativ funktioniert auch `GEMINI_API_KEY`.
 - `Alles lokal loeschen` entfernt den Browser-Speicher und den lokalen Fallback fuer den aktuellen Host/Browser.
 
 Hinweis: `TikTokLive` ist eine inoffizielle Bibliothek. Wenn TikTok intern etwas aendert, kann die Verbindung zeitweise fehlschlagen. Das Overlay zeigt niemals Usernamen oder einzelne Chatnachrichten, sondern nur aggregierte Keywords.
+
+## Mini-Browser via Neko (interaktive Webseiten auf der Bühne)
+
+Streamlit Cloud kann selbst keinen echten Browser hosten — viele Webseiten
+blockieren zudem `iframe`-Embedding. Mit einem **selbst-gehosteten
+[Neko](https://github.com/m1k1o/neko)**-Server bekommst du auf der Bühne
+einen vollwertigen, klick- und scrollbaren Browser via WebRTC.
+
+### Server bereitstellen
+
+Empfehlung: ein kleiner Hetzner CX21 oder CX22 (~5 €/Monat) mit Docker.
+`docker-compose.yml`:
+
+```yaml
+services:
+  neko:
+    image: m1k1o/neko:firefox
+    restart: unless-stopped
+    shm_size: "2gb"
+    ports:
+      - "8080:8080"
+      - "52000-52099:52000-52099/udp"
+    environment:
+      - NEKO_SCREEN=1280x720@30
+      - NEKO_PASSWORD=user-secret
+      - NEKO_PASSWORD_ADMIN=admin-secret
+      - NEKO_EPR=52000-52099
+      - NEKO_ICELITE=1
+      # Wenn HTTPS hinter einem Reverse Proxy (Caddy/Traefik) terminiert:
+      # - NEKO_PROXY=true
+```
+
+Mit `NEKO_ICELITE=1` muss der Server eine öffentliche IPv4 haben und die
+UDP-Ports 52000–52099 müssen frei sein. Ohne ICE-Lite zusätzlich einen
+STUN-Server konfigurieren (`NEKO_NAT1TO1`, `NEKO_ICESERVERS`).
+
+Dahinter unbedingt einen **Reverse Proxy mit HTTPS** (Caddy/Traefik) setzen
+— Streamlit Cloud lädt nur über `https://`. Beispiel-Caddyfile:
+
+```caddyfile
+neko.example.com {
+  reverse_proxy /api/* localhost:8080
+  reverse_proxy /static/* localhost:8080
+  reverse_proxy /ws localhost:8080
+  reverse_proxy * localhost:8080
+}
+```
+
+### Im Regiepult aktivieren
+
+1. Tab **Medien › Video / Website / PDF**, Abschnitt **Mini-Browser (Neko) Setup** aufklappen.
+2. Neko-URL eintragen (z. B. `https://neko.example.com`).
+3. Optional Passwort hinterlegen (nur als Notiz im Regie-State; das Login passiert im Iframe).
+4. **Mini-Browser aktivieren** klicken.
+5. Auf der Bühne erscheint jetzt der WebRTC-Browser. Login mit dem
+   `NEKO_PASSWORD` aus deiner docker-compose.
+
+### Sicherheit
+
+- **Niemals public-shared**: setze ein starkes `NEKO_PASSWORD`. Wer den
+  Iframe-Inhalt sieht, kann darin alles tun, wozu der Browser autorisiert ist.
+- **Kein Browsing eingeloggter Konten** (Banking, Mail, Streaming) — Zuschauer
+  des Streams sehen den Bildschirminhalt.
+- Optional: dedicated VM nur für Neko, mit Resourcen-Limits in Docker.
+
+### Diagnose
+
+- Bühne mit `?debug=1` öffnen — das eingeblendete Panel zeigt fetch-Status,
+  aktive Theme-Werte und Layer-Counts.
+- Im Browser-DevTools (`F12` → Console) erscheinen Logs mit Prefix
+  `[ttl-stage]`: URL-Params, Theme-Werte, sichtbare Edit-Handles,
+  Polling-Fehler. Bei Bug-Reports bitte Screenshot davon mitliefern.

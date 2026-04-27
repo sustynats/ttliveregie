@@ -2903,11 +2903,13 @@ def render_persistence_panel() -> None:
     debug_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, debug="1")
     transparent_url = static_overlay_url("https://ttliveregie.streamlit.app", st.session_state.overlay_room_id, bg="transparent")
     test_url = "https://ttliveregie.streamlit.app/app/static/browser_overlay.html?overlay=1&test=1"
+    health_url = "https://ttliveregie.streamlit.app/app/static/ttls_health.html"
     render_copyable_url("TT Live Studio Browserquelle", static_cloud_url, "ttls_overlay")
     render_copyable_url("TTLS Transparent", transparent_url, "ttls_transparent_overlay")
     render_copyable_url("Lokale TTLS Browserquelle", static_local_url, "ttls_local_overlay")
     render_copyable_url("Debug Browserquelle", debug_url, "debug_overlay")
     render_copyable_url("Test Browserquelle", test_url, "test_overlay")
+    render_copyable_url("Health-Test ohne Parameter", health_url, "health_overlay")
     render_copyable_url("Streamlit-Fallback", cloud_url, "cloud_overlay")
     if st.button("Neue geheime Overlay-ID erzeugen", key="room_rotate", use_container_width=True):
         st.session_state.overlay_room_id = safe_profile_id(str(uuid.uuid4()))[:18]

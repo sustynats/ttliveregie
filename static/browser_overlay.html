@@ -211,6 +211,69 @@
       font-weight: 900;
       cursor: pointer;
     }
+    .web-layer {
+      position: absolute;
+      left: var(--web-x, 50%);
+      top: var(--web-y, 54%);
+      width: var(--web-w, 76%);
+      height: var(--web-h, 58%);
+      transform: translate(-50%, -50%);
+      z-index: 6;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid rgba(255,79,216,.44);
+      background: rgba(5,6,8,.92);
+      box-shadow: 0 18px 48px rgba(0,0,0,.42);
+    }
+    .web-layer iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      background: #fff;
+    }
+    .web-card {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 32px 36px;
+      background:
+        radial-gradient(circle at 80% 8%, rgba(255,79,216,.18), transparent 30%),
+        linear-gradient(135deg, rgba(14,16,26,.96), rgba(0,0,0,.86));
+      color: var(--text);
+    }
+    .web-card .eyebrow {
+      color: var(--accent);
+      font-size: clamp(12px, 1.6vw, 18px);
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: .09em;
+      margin-bottom: 18px;
+      word-break: break-word;
+    }
+    .web-card b {
+      display: block;
+      font-size: clamp(34px, 7.8vw, 74px);
+      line-height: .95;
+      margin-bottom: 22px;
+      word-break: break-word;
+    }
+    .web-card p {
+      margin: 0;
+      max-width: 96%;
+      color: #cbd1ff;
+      font-size: clamp(17px, 3.5vw, 32px);
+      line-height: 1.26;
+      overflow: hidden;
+    }
+    .web-card small {
+      margin-top: 28px;
+      color: rgba(203,209,255,.78);
+      font-size: clamp(11px, 1.7vw, 18px);
+      word-break: break-all;
+    }
     .debug {
       position: absolute;
       left: 14px;
@@ -261,6 +324,7 @@
         <button type="button" id="videoPlay">Play/Pause</button>
         <button type="button" id="videoForward">+10</button>
       </div>
+      <div id="webLayer" class="web-layer hidden"></div>
       <div id="debug" class="debug hidden"></div>
     </main>
   </div>
@@ -274,6 +338,7 @@
       var pollMs = Math.max(1000, Number(params.get("poll") || 2500));
       var lastState = null;
       var currentVideoKey = "";
+      var currentWebsiteKey = "";
 
       if (transparent) document.body.classList.add("transparent");
       if (test) {
@@ -343,6 +408,64 @@
         } catch (e) {
           return "";
         }
+      }
+      function hostOf(value) {
+        try { return new URL(readableUrl(value)).hostname.replace(/^www\./, ""); }
+        catch (e) { return readableUrl(value); }
+      }
+      function isKnownBlocked(value) {
+        var host = hostOf(value).toLowerCase();
+        return [
+          "google.", "youtube.", "facebook.", "instagram.", "tiktok.", "x.com", "twitter.",
+          "linkedin.", "amazon.", "netflix.", "spotify.", "paypal.", "bank", "zdfheute.de"
+        ].some(function (part) { return host.indexOf(part) !== -1; });
+      }
+      function escapeHtml(value) {
+        return escText(value).replace(/[&<>"']/g, function (char) {
+          return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char];
+        });
+      }
+      function updateWebsite(state, hidden) {
+        var layer = document.getElementById("webLayer");
+        var showWebsite = !hidden && !!state.show_website && !!state.website_url;
+        if (!showWebsite) {
+          layer.classList.add("hidden");
+          layer.innerHTML = "";
+          currentWebsiteKey = "";
+          return;
+        }
+        var url = readableUrl(state.website_url);
+        var mode = state.website_mode || "Auto";
+        var hasPreview = !!state.website_preview_text;
+        var blocked = isKnownBlocked(url);
+        var useIframe = mode === "Interaktiver Browser" || (mode === "Auto" && !hasPreview && !blocked);
+        var usePreview = mode === "Website-Vorschau" || (mode === "Auto" && hasPreview);
+        var key = (useIframe ? "iframe:" : usePreview ? "preview:" : "card:") + url + "|" + (state.website_preview_title || "") + "|" + (state.website_preview_text || "");
+        var webX = clamp(state.website_x || 50, 0, 100) + "%";
+        var webY = clamp(state.website_y || 54, 0, 100) + "%";
+        var webW = clamp(state.website_width || 76, 20, 100) + "%";
+        var webH = clamp(state.website_height || 58, 15, 95) + "%";
+        layer.style.setProperty("--web-x", webX);
+        layer.style.setProperty("--web-y", webY);
+        layer.style.setProperty("--web-w", webW);
+        layer.style.setProperty("--web-h", webH);
+        if (key !== currentWebsiteKey) {
+          currentWebsiteKey = key;
+          if (useIframe) {
+            layer.innerHTML = '<iframe title="Website" src="' + url.replace(/"/g, "&quot;") + '" allow="clipboard-read; clipboard-write; fullscreen; autoplay" referrerpolicy="no-referrer-when-downgrade"></iframe>';
+          } else {
+            var title = state.website_preview_title || hostOf(url);
+            var text = usePreview ? state.website_preview_text : "Diese Website blockiert sehr wahrscheinlich Einbettung in Browserquellen. Nutze Website-Vorschau, Link-Karte oder eine offizielle Embed-URL.";
+            layer.innerHTML =
+              '<div class="web-card">' +
+              '<div class="eyebrow">' + (usePreview ? "Website-Vorschau" : "Website blockiert iframe") + " · " + escapeHtml(hostOf(url)) + '</div>' +
+              '<b>' + escapeHtml(title) + '</b>' +
+              '<p>' + escapeHtml(text || "") + '</p>' +
+              '<small>' + escapeHtml(url) + '</small>' +
+              '</div>';
+          }
+        }
+        layer.classList.remove("hidden");
       }
       function updateVideo(state, hidden) {
         var layer = document.getElementById("videoLayer");
@@ -418,6 +541,7 @@
         var hidden = !!state.clear_overlay;
         var showCloud = !!state.show_cloud && !hidden && !state.minimal_mode;
         var videoVisible = updateVideo(state, hidden);
+        updateWebsite(state, hidden);
 
         root.style.setProperty("--cloud-x", clamp(state.cloud_pos_x || 50, 0, 100) + "%");
         root.style.setProperty("--cloud-y", clamp(state.cloud_pos_y || 50, 0, 100) + "%");

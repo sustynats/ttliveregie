@@ -17,6 +17,7 @@ Dann im Browser oeffnen:
 - Overlay-only: `http://localhost:8501?overlay=1`
 - TT-Live-Studio-Browserquelle: im Regiepult unter `Persistenz / Backup` den Link `TT Live Studio Browserquelle` nutzen, z. B. `http://localhost:8501/app/static/browser_overlay.html?overlay=1&room=deine-id`
 - Debug/Test/Transparent: `...?overlay=1&debug=1&room=deine-id`, `...?overlay=1&test=1` oder `...?overlay=1&bg=transparent&room=deine-id`
+- Health-Test ohne Parameter: `http://localhost:8501/app/static/ttls_health.html`
 
 ## Nutzung mit TikTok Live Studio
 
@@ -34,7 +35,7 @@ Dann im Browser oeffnen:
 12. Szenen speichern, ueberschreiben, duplizieren, umbenennen, loeschen, importieren und exportieren.
 13. Settings, Szenen und Bildbibliothek werden pro Browser/Host im Browser localStorage gespeichert; zusaetzlich schreibt die App pro Browser-ID eine lokale JSON-Fallback-Datei.
 14. In TikTok Live Studio eine Browserquelle mit `TT Live Studio Browserquelle` aus `Persistenz / Backup` anlegen. Diese URL zeigt eine statische HTML/CSS/JS-Seite und pollt alle 2,5 Sekunden den Overlay-State, statt die Streamlit-Oberflaeche zu laden.
-15. Falls noetig: `Debug Browserquelle` zeigt Room-ID, Elementanzahl, Szenenanzahl und letzten Refresh. `Test Browserquelle` muss gross `TT LIVE STUDIO TEST OK` anzeigen.
+15. Falls noetig: `Debug Browserquelle` zeigt Room-ID, Elementanzahl, Szenenanzahl und letzten Refresh. `Test Browserquelle` oder `Health-Test ohne Parameter` muss gross `TT LIVE STUDIO TEST OK` anzeigen.
 16. Alternativ das rechte Buehnenfenster im normalen Regiepult als Fensterausschnitt zuschneiden.
 
 Wenn die Buehne durch Bild-/Overlay-Regler zu dunkel wird, oben im Regiepult `Aufhellen` oder im Bildbereich `Buehne aufhellen` klicken.

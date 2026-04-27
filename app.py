@@ -93,7 +93,8 @@ IMAGE_MODEL_LABELS = {
     "gemini-2.5-flash-image": "Gemini 2.5 Flash Image",
     "gemini-2.0-flash-preview-image-generation": "Gemini 2.0 Flash Image Preview",
 }
-MOTION_EFFECTS = ["Nebel", "Lagerfeuer", "Lichtstaub", "Scanlines", "Regen", "Funkeln", "Wellen"]
+MOTION_EFFECTS = ["Aerosol-Wolken", "Lagerfeuer", "Lichtstaub", "Scanlines", "Regen", "Funkeln", "Wellen"]
+MOTION_EFFECT_MAP = {"Nebel": "Aerosol-Wolken"}
 POSITIVE_WORDS = {
     "gut", "super", "liebe", "stark", "danke", "yes", "ja", "richtig", "wichtig", "hoffnung", "freude",
     "cool", "top", "fair", "solidaritaet", "solidarisch", "mut", "klar", "respekt",
@@ -786,7 +787,7 @@ def init_state() -> None:
         "keyword_density": 45,
         "animation_intensity": 55,
         "show_motion_layers": True,
-        "motion_effects": ["Nebel", "Lichtstaub"],
+        "motion_effects": ["Aerosol-Wolken", "Lichtstaub"],
         "motion_opacity": 42,
         "motion_speed": 55,
         "show_heatmap": False,
@@ -880,6 +881,7 @@ def init_state() -> None:
         st.session_state.ai_error = st.session_state.ai_response
         st.session_state.ai_response = ""
         st.session_state.show_ai_card = False
+    st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
     if "bg_brightness" not in st.session_state:
         st.session_state.bg_brightness = 115
     if not st.session_state.get("user_adjusted_cloud_position"):
@@ -963,6 +965,15 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.defaults_version = DEFAULTS_VERSION
 
 
+def normalize_motion_effects(effects: Any) -> list[str]:
+    normalized: list[str] = []
+    for effect in effects or []:
+        mapped = MOTION_EFFECT_MAP.get(effect, effect)
+        if mapped in MOTION_EFFECTS and mapped not in normalized:
+            normalized.append(mapped)
+    return normalized
+
+
 def apply_scene(scene: dict[str, Any]) -> None:
     for key, value in scene.items():
         if key in st.session_state:
@@ -977,6 +988,7 @@ def apply_scene(scene: dict[str, Any]) -> None:
         st.session_state.ai_error = st.session_state.ai_response
         st.session_state.ai_response = ""
         st.session_state.show_ai_card = False
+    st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
     st.session_state.topic_draft = st.session_state.topic
     st.session_state.highlight_draft = st.session_state.highlight_word
 
@@ -1043,6 +1055,7 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.ai_error = st.session_state.ai_response
         st.session_state.ai_response = ""
         st.session_state.show_ai_card = False
+    st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
     if not payload.get("user_adjusted_cloud_position"):
         st.session_state.cloud_pos_x = 50
         st.session_state.cloud_pos_y = 50
@@ -1839,8 +1852,8 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     motion_html = ""
     if not hidden and anim_enabled and state.get("show_motion_layers", True) and state.get("motion_effects"):
         effect_nodes = []
-        for effect in state.get("motion_effects", []):
-            slug = effect.lower()
+        for effect in normalize_motion_effects(state.get("motion_effects", [])):
+            slug = effect.lower().replace("-", "")
             if slug == "lagerfeuer":
                 effect_nodes.append(
                     '<div class="fireplace">'
@@ -1972,7 +1985,14 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .grain {{ position:absolute; inset:0; z-index:-2; background-image:linear-gradient(115deg, transparent, rgba(255,255,255,.035), transparent); opacity:.55; }}
     .motion-layer {{ position:absolute; inset:0; z-index:3; opacity:var(--motionOpacity); pointer-events:none; overflow:hidden; mix-blend-mode:screen; }}
     .fx {{ position:absolute; inset:-18%; display:block; }}
-    .fx-nebel {{ background:radial-gradient(circle at 18% 42%, rgba(255,255,255,.28), transparent 26%), radial-gradient(circle at 82% 62%, rgba(255,255,255,.18), transparent 32%); filter:blur(18px); animation: drift calc(20s / var(--motionSpeed)) linear infinite; }}
+    .fx-aerosolwolken {{
+      background:
+        radial-gradient(ellipse at 18% 72%, rgba(236,246,255,.52), rgba(236,246,255,.28) 18%, transparent 42%),
+        radial-gradient(ellipse at 38% 82%, rgba(210,230,255,.48), rgba(210,230,255,.22) 20%, transparent 46%),
+        radial-gradient(ellipse at 68% 76%, rgba(245,250,255,.42), rgba(245,250,255,.18) 22%, transparent 48%),
+        radial-gradient(ellipse at 82% 62%, rgba(200,220,245,.30), transparent 36%);
+      filter:blur(14px); animation:aerosolDrift calc(18s / var(--motionSpeed)) ease-in-out infinite alternate;
+    }}
     .fireplace {{ position:absolute; left:50%; bottom:4%; width:62%; height:30%; transform:translateX(-50%); filter:saturate(1.15); }}
     .fire-glow {{ position:absolute; left:50%; bottom:2%; width:86%; height:86%; transform:translateX(-50%); background:radial-gradient(ellipse at 50% 80%, rgba(255,132,28,.75), rgba(255,58,18,.34) 30%, rgba(255,160,50,.12) 52%, transparent 74%); filter:blur(20px); animation:flicker calc(2.6s / var(--motionSpeed)) ease-in-out infinite; }}
     .flame {{ position:absolute; bottom:18%; left:50%; width:16%; height:62%; border-radius:48% 48% 52% 52%; transform-origin:50% 100%; background:linear-gradient(180deg, rgba(255,250,180,.95) 0%, rgba(255,175,38,.95) 36%, rgba(255,69,18,.72) 76%, transparent 100%); filter:blur(.4px); mix-blend-mode:screen; animation: flameDance calc(1.7s / var(--motionSpeed)) ease-in-out infinite; }}
@@ -2093,6 +2113,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
       50% {{ transform:translate(calc(-50% + 6px), calc(-50% - 9px)) rotate(var(--r)) scale(calc(var(--s) * 1.025)); opacity:1; }}
     }}
     @keyframes drift {{ from {{ transform:translate3d(-4%,0,0); }} to {{ transform:translate3d(6%,-4%,0); }} }}
+    @keyframes aerosolDrift {{ 0% {{ transform:translate3d(-8%, 4%, 0) scale(1); opacity:.72; }} 50% {{ transform:translate3d(2%, -3%, 0) scale(1.08); opacity:1; }} 100% {{ transform:translate3d(9%, 2%, 0) scale(1.03); opacity:.82; }} }}
     @keyframes flicker {{ 0%,100% {{ opacity:.55; transform:scale(1); }} 50% {{ opacity:1; transform:scale(1.04); }} }}
     @keyframes flameDance {{ 0%,100% {{ transform:translateX(-50%) rotate(-3deg) scaleY(.95); opacity:.82; }} 35% {{ transform:translateX(calc(-50% - 5px)) rotate(4deg) scaleY(1.08); opacity:1; }} 70% {{ transform:translateX(calc(-50% + 4px)) rotate(-6deg) scaleY(.9); opacity:.9; }} }}
     @keyframes emberRise {{ 0% {{ transform:translate3d(0, 0, 0) scale(.7); opacity:0; }} 18% {{ opacity:1; }} 100% {{ transform:translate3d(18px, -180px, 0) scale(.15); opacity:0; }} }}

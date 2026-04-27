@@ -63,7 +63,6 @@ STATIC_OVERLAY_FILE = STATIC_DIR / "browser_overlay.html"
 STATIC_STAGE_FILE = STATIC_DIR / "stage.html"
 LOCAL_STORAGE_KEY = "ttliveregie_state_v2"
 LOCAL_BROWSER_ID_KEY = "ttliveregie_browser_id_v1"
-LOCAL_EDIT_QUEUE_KEY = "ttl_stage_edit_queue"
 COMMENT_WINDOW_SECONDS = 4 * 60
 KEYWORD_REFRESH_SECONDS = 20
 MAX_KEYWORDS = 32
@@ -814,7 +813,6 @@ def init_state() -> None:
         "freeze_keywords": False,
         "focus_mode": False,
         "clear_overlay": False,
-        "stage_edit_mode": False,
         "bg_dim": 22,
         "bg_blur": 0,
         "bg_brightness": 110,
@@ -1049,7 +1047,6 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.bg_brightness = max(110, int(st.session_state.get("bg_brightness", 115) or 115))
     st.session_state.show_clock = True
     st.session_state.show_overlay_frame = False
-    st.session_state.stage_edit_mode = False
     st.session_state.defaults_version = DEFAULTS_VERSION
 
 
@@ -1245,7 +1242,6 @@ def reset_stage_to_safe_defaults() -> None:
     st.session_state.clear_overlay = False
     st.session_state.minimal_mode = False
     st.session_state.focus_mode = False
-    st.session_state.stage_edit_mode = False
     st.session_state.topic_font_family = "Poppins"
     st.session_state.keyword_font_family = "Inter"
     st.session_state.topic_font_weight = 850
@@ -1560,168 +1556,21 @@ def brighten_stage() -> None:
 
 
 _LAYER_FIELD_MAP: dict[str, dict[str, str]] = {
-    "topic": {"x": "topic_x", "y": "topic_y", "w": "topic_width", "h": "topic_height", "show": "show_topic"},
-    "highlight": {"x": "highlight_x", "y": "highlight_y", "w": "highlight_width", "h": "highlight_height", "show": "show_highlight"},
-    "cloud": {"x": "cloud_pos_x", "y": "cloud_pos_y", "w": "cloud_width", "h": "cloud_height", "show": "show_cloud"},
-    "countdown": {"x": "countdown_x", "y": "countdown_y", "w": "countdown_width", "h": "countdown_height", "show": "show_countdown"},
-    "clock": {"x": "clock_x", "y": "clock_y", "w": "clock_width", "h": "clock_height", "show": "show_clock"},
-    "video": {"x": "video_x", "y": "video_y", "w": "video_width", "h": "video_height", "show": "show_video"},
-    "website": {"x": "website_x", "y": "website_y", "w": "website_width", "h": "website_height", "show": "show_website"},
-    "pdf": {"x": "pdf_x", "y": "pdf_y", "w": "pdf_width", "h": "pdf_height", "show": "show_pdf"},
-    "ai": {"x": "ai_x", "y": "ai_y", "w": "ai_width", "h": "ai_height", "show": "show_ai_card"},
+    "topic": {"label": "Thema", "x": "topic_x", "y": "topic_y", "w": "topic_width", "h": "topic_height", "show": "show_topic"},
+    "highlight": {"label": "Highlight", "x": "highlight_x", "y": "highlight_y", "w": "highlight_width", "h": "highlight_height", "show": "show_highlight"},
+    "cloud": {"label": "Wortwolke", "x": "cloud_pos_x", "y": "cloud_pos_y", "w": "cloud_width", "h": "cloud_height", "show": "show_cloud"},
+    "countdown": {"label": "Countdown", "x": "countdown_x", "y": "countdown_y", "w": "countdown_width", "h": "countdown_height", "show": "show_countdown"},
+    "clock": {"label": "Uhr", "x": "clock_x", "y": "clock_y", "w": "clock_width", "h": "clock_height", "show": "show_clock"},
+    "video": {"label": "Video", "x": "video_x", "y": "video_y", "w": "video_width", "h": "video_height", "show": "show_video"},
+    "website": {"label": "Website", "x": "website_x", "y": "website_y", "w": "website_width", "h": "website_height", "show": "show_website"},
+    "pdf": {"label": "PDF", "x": "pdf_x", "y": "pdf_y", "w": "pdf_width", "h": "pdf_height", "show": "show_pdf"},
+    "ai": {"label": "KI-Karte", "x": "ai_x", "y": "ai_y", "w": "ai_width", "h": "ai_height", "show": "show_ai_card"},
 }
 _LAYER_MIN_SIZE: dict[str, tuple[int, int]] = {
     "topic": (18, 8), "highlight": (16, 8), "cloud": (35, 35),
     "countdown": (18, 8), "clock": (12, 6), "video": (15, 10),
     "website": (20, 15), "pdf": (20, 20), "ai": (20, 12),
 }
-
-
-def _apply_layer_payload(layer_id: str, payload: dict[str, Any]) -> bool:
-    fields = _LAYER_FIELD_MAP.get(layer_id)
-    if not fields:
-        return False
-    changed = False
-    if payload.get("hide"):
-        st.session_state[fields["show"]] = False
-        return True
-    min_w, min_h = _LAYER_MIN_SIZE.get(layer_id, (8, 8))
-    for src, dst, lo, hi in (("x", fields["x"], 0, 100), ("y", fields["y"], 0, 100)):
-        if src in payload:
-            try:
-                v = float(payload[src])
-            except (TypeError, ValueError):
-                continue
-            v = max(lo, min(hi, v))
-            st.session_state[dst] = int(round(v))
-            changed = True
-    if "w" in payload:
-        try:
-            v = max(min_w, min(100, float(payload["w"])))
-            st.session_state[fields["w"]] = int(round(v))
-            changed = True
-        except (TypeError, ValueError):
-            pass
-    if "h" in payload:
-        try:
-            v = max(min_h, min(100, float(payload["h"])))
-            st.session_state[fields["h"]] = int(round(v))
-            changed = True
-        except (TypeError, ValueError):
-            pass
-    if layer_id == "cloud" and changed:
-        st.session_state.user_adjusted_cloud_position = True
-    return changed
-
-
-def drain_stage_edit_queue() -> None:
-    """Polls localStorage für Drag/Resize-Events der Bühne und wendet sie an.
-
-    Die Bühnen-iFrame schreibt postMessage-Events in localStorage. Wir holen
-    sie hier, applizieren die Layer-Updates auf st.session_state, leeren die
-    Queue und triggern einen Rerun, damit der neue State an die Bühne fließt.
-    """
-    if streamlit_js_eval is None:
-        return
-    try:
-        raw = streamlit_js_eval(
-            js_expressions=(
-                "(function(){"
-                f"var q = localStorage.getItem({json.dumps(LOCAL_EDIT_QUEUE_KEY)});"
-                f"localStorage.removeItem({json.dumps(LOCAL_EDIT_QUEUE_KEY)});"
-                "return q || '';"
-                "})()"
-            ),
-            key=f"edit_drain_{int(time.time() // 2)}",
-        )
-    except Exception:
-        raw = None
-    if not raw:
-        return
-    try:
-        events = json.loads(raw)
-    except Exception:
-        return
-    if not isinstance(events, list) or not events:
-        return
-    any_change = False
-    for ev in events:
-        if not isinstance(ev, dict):
-            continue
-        if ev.get("type") != "ttl-stage-edit":
-            continue
-        layer_id = ev.get("id", "")
-        payload = ev.get("payload") or {}
-        if isinstance(payload, dict) and _apply_layer_payload(layer_id, payload):
-            any_change = True
-    if any_change:
-        try:
-            st.rerun()
-        except Exception:
-            pass
-
-
-def apply_stage_editor_params() -> None:
-    target = st.query_params.get("stage_edit_target", "")
-    if target not in {"topic", "highlight", "cloud", "countdown", "clock", "video", "website", "pdf", "ai"}:
-        return
-    try:
-        x = float(st.query_params.get("stage_edit_x", ""))
-        y = float(st.query_params.get("stage_edit_y", ""))
-        w = float(st.query_params.get("stage_edit_w", ""))
-        h = float(st.query_params.get("stage_edit_h", ""))
-    except (TypeError, ValueError):
-        return
-    x = max(0, min(100, x))
-    y = max(0, min(100, y))
-    w = max(5, min(100, w))
-    h = max(5, min(100, h))
-    if target == "topic":
-        st.session_state.topic_x = int(round(x))
-        st.session_state.topic_y = int(round(y))
-        st.session_state.topic_width = int(round(max(18, w)))
-        st.session_state.topic_height = int(round(max(8, h)))
-    elif target == "highlight":
-        st.session_state.highlight_x = int(round(x))
-        st.session_state.highlight_y = int(round(y))
-        st.session_state.highlight_width = int(round(max(16, w)))
-        st.session_state.highlight_height = int(round(max(8, h)))
-    elif target == "cloud":
-        st.session_state.cloud_pos_x = int(round(x))
-        st.session_state.cloud_pos_y = int(round(y))
-        st.session_state.cloud_width = int(round(max(35, w)))
-        st.session_state.cloud_height = int(round(max(35, h)))
-        st.session_state.user_adjusted_cloud_position = True
-    elif target == "countdown":
-        st.session_state.countdown_x = int(round(x))
-        st.session_state.countdown_y = int(round(y))
-        st.session_state.countdown_width = int(round(max(18, w)))
-        st.session_state.countdown_height = int(round(max(8, h)))
-    elif target == "clock":
-        st.session_state.clock_x = int(round(x))
-        st.session_state.clock_y = int(round(y))
-        st.session_state.clock_width = int(round(max(12, w)))
-        st.session_state.clock_height = int(round(max(6, h)))
-    elif target == "video":
-        st.session_state.video_x = int(round(x))
-        st.session_state.video_y = int(round(y))
-        st.session_state.video_width = int(round(max(15, w)))
-        st.session_state.video_height = int(round(max(10, h)))
-    elif target == "website":
-        st.session_state.website_x = int(round(x))
-        st.session_state.website_y = int(round(y))
-        st.session_state.website_width = int(round(max(20, w)))
-        st.session_state.website_height = int(round(max(15, h)))
-    elif target == "pdf":
-        st.session_state.pdf_x = int(round(x))
-        st.session_state.pdf_y = int(round(y))
-        st.session_state.pdf_width = int(round(max(20, w)))
-        st.session_state.pdf_height = int(round(max(20, h)))
-    elif target == "ai":
-        st.session_state.ai_x = int(round(x))
-        st.session_state.ai_y = int(round(y))
-        st.session_state.ai_width = int(round(max(20, w)))
-        st.session_state.ai_height = int(round(max(12, h)))
 
 
 def google_api_key() -> str:
@@ -2596,7 +2445,6 @@ def current_overlay_state() -> dict[str, Any]:
             "live_started_at": live_started_at,
             "live_duration": live_duration,
             "sentiment": chat_sentiment_state(),
-            "stage_edit_mode": st.session_state.get("stage_edit_mode", False),
             "bg": theme.get("bg") or "#050608",
             "panel": theme.get("panel") or "rgba(8,10,16,.62)",
             # Achtung: Schlüssel heißt im Theme "text", auf der Bühne "text_color".
@@ -2630,7 +2478,6 @@ def current_overlay_state() -> dict[str, Any]:
 
 def persist_overlay_state() -> None:
     data = current_overlay_state()
-    data["stage_edit_mode"] = False
     data["updated_at"] = time.time()
     data["room_id"] = st.session_state.overlay_room_id
     data["scenes_count"] = len(st.session_state.get("scenes", {}))
@@ -2698,43 +2545,66 @@ def push_state_to_gist_if_due(serialized_state: str) -> None:
 
 
 def _push_state_to_gist_now(serialized_state: str, token: str, gist_id: str) -> None:
+    import random
     import urllib.request
     import urllib.error
 
     room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
     fname = f"state-{room}.json"
     body = json.dumps({"files": {fname: {"content": serialized_state}}}).encode("utf-8")
-    req = urllib.request.Request(
-        f"https://api.github.com/gists/{gist_id}",
-        data=body,
-        method="PATCH",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json",
-            "User-Agent": "ttliveregie/1.0",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            ok = 200 <= resp.status < 300
-            st.session_state["gist_last_push_at"] = time.time()
+
+    def _build_req() -> urllib.request.Request:
+        return urllib.request.Request(
+            f"https://api.github.com/gists/{gist_id}",
+            data=body,
+            method="PATCH",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+                "User-Agent": "ttliveregie/1.0",
+            },
+        )
+
+    # Bei 409 Conflict (Race-Condition zwischen parallelen PATCH-Calls) einmal
+    # mit kleinem Jitter retryen. Andere Fehler werden direkt geloggt.
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(_build_req(), timeout=5) as resp:
+                ok = 200 <= resp.status < 300
+                st.session_state["gist_last_push_at"] = time.time()
+                st.session_state["gist_status"] = {
+                    "ok": ok,
+                    "msg": f"OK ({resp.status})" if ok else f"HTTP {resp.status}",
+                    "at": time.time(),
+                }
+                st.session_state.pop("gist_pending", None)
+                return
+        except urllib.error.HTTPError as e:
+            last_error = e
+            if e.code == 409 and attempt == 0:
+                time.sleep(0.3 + random.random() * 0.5)
+                continue
             st.session_state["gist_status"] = {
-                "ok": ok,
-                "msg": f"OK ({resp.status})" if ok else f"HTTP {resp.status}",
+                "ok": False,
+                "msg": f"HTTP {e.code}: {e.reason}",
                 "at": time.time(),
             }
-            st.session_state.pop("gist_pending", None)
-    except urllib.error.HTTPError as e:
+            return
+        except Exception as e:
+            last_error = e
+            st.session_state["gist_status"] = {
+                "ok": False,
+                "msg": f"{type(e).__name__}: {e}",
+                "at": time.time(),
+            }
+            return
+    # Falls beide Versuche mit 409 endeten
+    if isinstance(last_error, urllib.error.HTTPError):
         st.session_state["gist_status"] = {
             "ok": False,
-            "msg": f"HTTP {e.code}: {e.reason}",
-            "at": time.time(),
-        }
-    except Exception as e:
-        st.session_state["gist_status"] = {
-            "ok": False,
-            "msg": f"{type(e).__name__}: {e}",
+            "msg": f"HTTP {last_error.code}: {last_error.reason} (nach Retry)",
             "at": time.time(),
         }
 
@@ -2792,25 +2662,25 @@ def load_overlay_state() -> dict[str, Any]:
 
 
 def render_stage(state: dict[str, Any], height: int = 860) -> None:
-    """Bettet die statische stage.html als iframe ins Regiepult ein.
+    """Bettet die Bühne ins Regiepult ein.
 
-    Das Streamlit-Rerun rührt den Iframe-Inhalt nicht an — der DOM bleibt
-    stabil, Fonts laden einmal, kein Flackern. Das Iframe pollt selbst die
-    JSON-State-Datei und re-rendert clientseitig per DOM-Diff.
+    Zwei Modi:
+    1. **Cloud**: GitHub-Pages-Iframe (selbe URL, die TikTok Live Studio sieht).
+       Live-Updates per Gist-Polling. So sieht der User exakt das Endergebnis.
+    2. **Lokal**: Streamlit-Static-Pfad (kein Gist nötig).
+
+    Layout-Änderungen passieren über den Layout-Tab in der Regie
+    (Slider/Number-Inputs), nicht mehr per Drag in der Bühne. Die Bühne
+    ist reine Anzeige.
     """
     room = safe_profile_id(st.session_state.get("overlay_room_id", "default") or "default")
-    edit = "1" if st.session_state.get("stage_edit_mode") else "0"
-    # WICHTIG: Keine Timestamps oder Cache-Buster in der iframe-src.
-    # Streamlit re-mountet das Component, sobald sich der HTML-String ändert
-    # — das ist die Ursache des Reload-Loops. Die src darf sich nur ändern,
-    # wenn der User aktiv `room` oder `edit` umschaltet. Das Polling im
-    # Inneren von stage.html bringt die State-Updates rein.
-    if _is_streamlit_cloud_runtime():
-        # Cloud: GitHub-Pages-Bühne einbetten (selbe URL, die TTLS sieht).
-        # Damit zeigt die Regie-Vorschau exakt das Endergebnis.
-        gid = _gist_id(); guser = _gist_user()
+    is_cloud = _is_streamlit_cloud_runtime()
+
+    if is_cloud:
+        gid = _gist_id()
+        guser = _gist_user()
         gist_q = f"&gist={guser}/{gid}" if (gid and guser) else (f"&gist={gid}" if gid else "")
-        src = f"{GITHUB_PAGES_BASE}/stage.html?room={room}&edit={edit}{gist_q}"
+        src = f"{GITHUB_PAGES_BASE}/stage.html?room={room}{gist_q}"
         if not gid:
             st.info(
                 "Live-Updates der Vorschau brauchen Gist-Sync (Tab Backup → Gist-Sync). "
@@ -2818,26 +2688,14 @@ def render_stage(state: dict[str, Any], height: int = 860) -> None:
                 "sobald ein Gist verbunden ist."
             )
     else:
-        # Lokal: Streamlit-Static-Pfad (relativ zur App-Origin), kein Gist nötig.
-        src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}&edit={edit}"
+        src = f"./app/static/{STATIC_STAGE_FILE.name}?room={room}"
     iframe_html = (
         '<!doctype html><html><head><meta charset="utf-8"><style>'
         'html,body{margin:0;padding:0;height:100%;background:#050608;overflow:hidden;}'
         'iframe{display:block;width:100%;height:100%;border:0;background:#050608;}'
         '</style></head><body>'
         f'<iframe id="stageframe" src="{html.escape(src)}" allow="autoplay; encrypted-media; fullscreen; microphone; camera; clipboard-read; clipboard-write" referrerpolicy="no-referrer"></iframe>'
-        '<script>'
-        'window.addEventListener("message", function (ev) {'
-        '  if (!ev.data || ev.data.type !== "ttl-stage-edit") return;'
-        '  try {'
-        '    var queue = JSON.parse(localStorage.getItem("ttl_stage_edit_queue") || "[]");'
-        '    queue.push(ev.data);'
-        '    while (queue.length > 30) queue.shift();'
-        '    localStorage.setItem("ttl_stage_edit_queue", JSON.stringify(queue));'
-        '  } catch (e) {}'
-        '  try { if (window.parent && window.parent !== window) window.parent.postMessage(ev.data, "*"); } catch (e) {}'
-        '}, false);'
-        '</script></body></html>'
+        '</body></html>'
     )
     st.components.v1.html(iframe_html, height=height, scrolling=False)
 
@@ -2971,7 +2829,6 @@ def render_toggle_panel() -> None:
     for key, label in toggles:
         st.toggle(label, key=key)
     st.toggle("Hintergrundbild anzeigen", key="background_visible_control", on_change=sync_background_visibility)
-    st.toggle("Bühne direkt bearbeiten", key="stage_edit_mode")
 
 
 def render_topic_panel() -> None:
@@ -3028,6 +2885,79 @@ def render_countdown_panel() -> None:
         st.session_state.countdown_started_at = None
         st.session_state.countdown_running = False
     st.caption(f"Restzeit: {format_duration(st.session_state.countdown_remaining)}")
+
+
+def render_position_panel() -> None:
+    """Slider/Inputs für Position und Größe jeder Bühnen-Ebene.
+
+    Ersetzt den früheren Drag-/Resize-Edit-Mode der Bühne. Änderungen schreiben
+    direkt in `st.session_state` und fließen über `current_overlay_state()` und
+    den Gist-Push an die Bühne.
+    """
+    section("Position & Größe")
+    st.caption("Pro Layer X/Y/Breite/Höhe in Prozent der Bühne. Sichtbarkeit toggelbar.")
+    # Wichtig: Mehrere kanonische Keys (z.B. `cloud_pos_x`, `video_x`, ...) sind
+    # bereits an anderer Stelle als Widget-Keys belegt. Streamlit erlaubt einen
+    # Key nur einmal pro Render-Pass als Widget. Daher arbeiten wir hier mit
+    # Mirror-Keys (`pos_<layer>_<dim>`), lesen vor dem Render aus dem
+    # kanonischen Key und spiegeln per on_change zurück.
+    def _make_sync(canonical_key: str, mirror_key: str, lo: int, hi: int):
+        def _sync() -> None:
+            try:
+                v = int(st.session_state.get(mirror_key, lo) or lo)
+            except (TypeError, ValueError):
+                v = lo
+            st.session_state[canonical_key] = max(lo, min(hi, v))
+        return _sync
+
+    def _make_show_sync(show_key: str, mirror_key: str):
+        def _sync() -> None:
+            st.session_state[show_key] = bool(st.session_state.get(mirror_key))
+        return _sync
+
+    for layer_id, fields in _LAYER_FIELD_MAP.items():
+        label = fields.get("label", layer_id)
+        min_w, min_h = _LAYER_MIN_SIZE.get(layer_id, (8, 8))
+        with st.expander(label, expanded=False):
+            dims = [
+                ("x", "X (%)", 0, 100),
+                ("y", "Y (%)", 0, 100),
+                ("w", "Breite (%)", min_w, 100),
+                ("h", "Höhe (%)", min_h, 100),
+            ]
+            # Mirror-Keys vorbefüllen aus den kanonischen Werten
+            for short, _lab, lo, hi in dims:
+                mirror = f"pos_{layer_id}_{short}"
+                try:
+                    cur = int(st.session_state.get(fields[short], lo) or lo)
+                except (TypeError, ValueError):
+                    cur = lo
+                cur = max(lo, min(hi, cur))
+                # Auch kanonisch clampen, falls altes Backup außerhalb lag.
+                st.session_state[fields[short]] = cur
+                if st.session_state.get(mirror) != cur:
+                    st.session_state[mirror] = cur
+            show_key = fields["show"]
+            show_mirror = f"pos_show_{layer_id}"
+            current_show = bool(st.session_state.get(show_key, True))
+            if st.session_state.get(show_mirror) != current_show:
+                st.session_state[show_mirror] = current_show
+
+            st.toggle("Anzeigen", key=show_mirror, on_change=_make_show_sync(show_key, show_mirror))
+            cols = st.columns(2)
+            order = [("x", 0), ("w", 0), ("y", 1), ("h", 1)]
+            for short, col_idx in order:
+                lab = next(d[1] for d in dims if d[0] == short)
+                lo = next(d[2] for d in dims if d[0] == short)
+                hi = next(d[3] for d in dims if d[0] == short)
+                mirror = f"pos_{layer_id}_{short}"
+                with cols[col_idx]:
+                    st.slider(lab, lo, hi, key=mirror,
+                              on_change=_make_sync(fields[short], mirror, lo, hi))
+            if layer_id == "cloud":
+                # Sobald der User die Wolke selbst positioniert, soll ein
+                # Layout-Wechsel die Position nicht mehr resetten.
+                st.session_state.user_adjusted_cloud_position = True
 
 
 def render_layout_panel() -> None:
@@ -3775,6 +3705,8 @@ def render_control_panel() -> None:
     with tab_buehne:
         with st.expander("Sichtbarkeit", expanded=True):
             render_toggle_panel()
+        with st.expander("Position & Größe", expanded=False):
+            render_position_panel()
         with st.expander("Thema & Highlight", expanded=True):
             render_topic_panel()
             render_highlight_panel()
@@ -3838,15 +3770,6 @@ def main() -> None:
 
     load_persisted_state_once()
     st.markdown(css_for_streamlit(), unsafe_allow_html=True)
-    apply_stage_editor_params()
-    drain_stage_edit_queue()
-    # Sync zwischen Topbar-Toggle und Sichtbarkeits-Panel-Toggle:
-    # `stage_edit_mode` ist die kanonische Quelle, `stage_edit_topbar` ist
-    # nur der Widget-State der Topbar. Beide Richtungen werden auf jeden
-    # Rerun zueinander gezogen.
-    canonical = bool(st.session_state.get("stage_edit_mode"))
-    if st.session_state.get("stage_edit_topbar") != canonical:
-        st.session_state.stage_edit_topbar = canonical
     # Auto-refresh: nur dann nötig, wenn der Live-Chat tickt (neue Keywords)
     # ODER ein Countdown läuft. Beim reinen Style-/Layout-Editieren wäre ein
     # 4s-Refresh schädlich — er triggert Re-Renders der Sidebar und damit
@@ -3870,34 +3793,11 @@ def main() -> None:
             render_control_panel()
     with right:
         with st.container(key="stage_panel_fixed"):
-            # Topbar mit prominentem Edit-Toggle. Eigener Key (`stage_edit_topbar`)
-            # damit es keine Streamlit-Key-Kollision mit dem Toggle in der
-            # Sichtbarkeits-Sektion gibt; Sync via on_change in beide Richtungen.
-            if "stage_edit_topbar" not in st.session_state:
-                st.session_state.stage_edit_topbar = bool(st.session_state.get("stage_edit_mode"))
-
-            def _sync_edit_topbar() -> None:
-                st.session_state.stage_edit_mode = bool(st.session_state.stage_edit_topbar)
-
-            top_cols = st.columns([0.45, 0.30, 0.25])
+            top_cols = st.columns([0.70, 0.30])
             with top_cols[0]:
-                edit_label = "✏️ Bühne · EDIT" if st.session_state.get("stage_edit_mode") else "Bühne"
-                st.markdown(f"### {edit_label}")
+                st.markdown("### Bühne")
             with top_cols[1]:
-                st.toggle(
-                    "✏️ Edit-Modus",
-                    key="stage_edit_topbar",
-                    on_change=_sync_edit_topbar,
-                    help="Layer auf der Bühne direkt verschieben, skalieren oder mit ✕ ausblenden.",
-                )
-            with top_cols[2]:
                 st.selectbox("Format", ["9:16", "16:9"], key="aspect", label_visibility="collapsed")
-            if st.session_state.get("stage_edit_mode"):
-                st.info(
-                    "**Edit-Modus aktiv** — gestrichelte Cyan-Rahmen auf der Bühne ziehen, an der Ecke ↘ skalieren, mit ✕ ausblenden. "
-                    "Wenn nichts erscheint: `?debug=1` an die Bühnen-URL hängen, um Diagnose-Banner einzublenden.",
-                    icon="✏️",
-                )
             render_stage(current_overlay_state(), height=900)
     save_persisted_state("auto")
 

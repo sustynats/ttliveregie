@@ -44,12 +44,18 @@ GITHUB_GIST_USER = "sustynats"
 
 1. App starten und TikTok-Username oder Live-URL eingeben.
 2. `Start` klicken. Die App verbindet sich ueber `TikTokLive` mit dem Live-Chat.
-3. Links Szenen, Layout, Cloud-Stil, Thema, Highlight, Countdown, Bilder, Typografie und Safety steuern.
+3. Links Szenen, Layout, Cloud-Stil, Thema, Highlight, Countdown, Bilder, Typografie und Safety steuern. Im Tab `Bühne → Position & Größe` lassen sich pro Layer (Thema, Highlight, Wortwolke, Countdown, Uhr, Video, Website, PDF, KI-Karte) X-/Y-Position und Breite/Höhe über Slider in Prozent einstellen, plus Sichtbarkeit togglen. Die Bühne selbst ist reine Anzeige – alle Layout-Änderungen passieren in der Regie.
 4. Manuelle Cloud-Woerter setzen und Schriftgroessen/Familien fuer Thema, Keywords, Highlight, Countdown und Uhr live anpassen.
 5. Mehrere Bilder hochladen, benennen, ausblenden, aktivieren oder aus der Session-Bibliothek loeschen.
 6. Unter `Medien / Web` direkte Video-URLs einblenden, Ton stummschalten oder aktiv lassen, Video skalieren/positionieren und entscheiden, ob das Hintergrundbild hinter dem Video sichtbar bleibt. YouTube-Links werden automatisch als YouTube-Embed eingebettet.
 7. Direkte MP4/WebM/HLS-Videos koennen direkt auf der Bühne mit Play/Pause und 10-Sekunden-Schritten gesteuert werden. YouTube nutzt die eigenen Embed-Controls.
-8. Unter `Medien / Web` Websites als iframe einbetten. Viele Seiten blockieren iframe-Einbettung; `Auto` zeigt fuer bekannte Blocker eine Website-Vorschau oder Link-Karte statt der kaputten Browserflaeche. Embed-URLs funktionieren am zuverlaessigsten.
+8. Unter `Medien / Web` Websites als iframe einbetten. Viele Seiten blockieren iframe-Einbettung per `X-Frame-Options: DENY` oder `Content-Security-Policy: frame-ancestors`; `Auto` zeigt fuer bekannte Blocker eine Website-Vorschau oder Link-Karte statt der kaputten Browserflaeche. Embed-URLs funktionieren am zuverlaessigsten.
+
+   **Browser-Kompatibilität (iframe-Quelle):**
+   - Funktioniert: Wikipedia, eigene Websites/Blogs, Mediawiki-Instanzen, Markdown-Viewer, viele News-Embeds, YouTube-Embed-URLs (`youtube.com/embed/...`), Vimeo-Embeds.
+   - Geblockt: TikTok-Profile, Twitter/X, Facebook, Instagram, größere News-Outlets (Spiegel, Zeit, NYT u.ä.), Banking, Google-Suche, viele SaaS-Tools. Diese Seiten setzen Frame-Ablehnung serverseitig – dagegen kann der Client nichts tun.
+   - YouTube-Fehler 153 ("Embed deaktiviert"): Der Kanalbetreiber hat Einbettung in seinem YouTube-Studio ausgeschaltet. Anderen Link nutzen oder Video direkt herunterladen und als MP4 einbinden.
+   - Für blockierte Seiten gibt es keinen sauberen Workaround in TT Live Studio; eine Alternative ist eigener Mini-Browser via Neko (Abschnitt unten).
 9. Unter `Bewegung / Heatmap` transparente Motion-Layer wie Nebel, Lagerfeuer, Lichtstaub, Scanlines, Regen, Funkeln und Wellen aktivieren und die Chat-Stimmungs-Heatmap einblenden.
 10. Unter `Bilder` per Google API ein KI-Hintergrundbild aus einem Prompt und optional den Chat-Schwerpunkten der letzten 5 Minuten erzeugen. Standard ist Imagen 4 Fast; je nach Google-Konto kann Imagen Paid-Tier erfordern.
 11. Unter `KI-Check` eine kurze sichtbare Zusammenfassung erzeugen und als Karte auf die Buehne legen. Die maximale Antwortlaenge ist bis 3000 Zeichen einstellbar.

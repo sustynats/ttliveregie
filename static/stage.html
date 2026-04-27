@@ -377,96 +377,9 @@ body.transparent .veil { background: transparent; display: none; }
   animation: pulse calc(4s / var(--motionSpeed)) ease-in-out infinite;
 }
 
-/* Edit-Mode handles */
-#editHandles {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 9000;
-  display: none;
-}
-body.edit-mode #editHandles { display: block; }
-.edit-handle {
-  position: absolute;
-  cursor: move;
-  border: 2px dashed rgba(41,243,255,.85);
-  border-radius: 10px;
-  background: rgba(41,243,255,.06);
-  box-shadow: 0 0 0 1px rgba(0,0,0,.3) inset, 0 6px 22px rgba(0,0,0,.45);
-  z-index: 9100;
-  pointer-events: auto;
-  transform: translate(-50%, -50%);
-  user-select: none;
-  touch-action: none;
-}
-.edit-handle:hover { border-color: var(--accent2, #29f3ff); background: rgba(41,243,255,.14); }
-.edit-handle .label {
-  position: absolute;
-  top: -26px;
-  left: 0;
-  font: 700 12px/1 system-ui, sans-serif;
-  color: #050608;
-  background: #29f3ff;
-  padding: 4px 10px;
-  border-radius: 99px;
-  pointer-events: none;
-  white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0,0,0,.4);
-}
-.edit-handle .resize {
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  background: #29f3ff;
-  border: 2px solid #050608;
-  border-radius: 50%;
-  right: -10px;
-  bottom: -10px;
-  cursor: nwse-resize;
-  box-shadow: 0 2px 8px rgba(0,0,0,.4);
-}
-.edit-handle .hide-btn {
-  position: absolute;
-  top: -26px;
-  right: -10px;
-  width: 26px;
-  height: 26px;
-  background: #ff5078;
-  color: #fff;
-  border: 0;
-  border-radius: 50%;
-  font: 800 16px/1 system-ui, sans-serif;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0,0,0,.4);
-  pointer-events: auto;
-}
-.edit-handle .hide-btn:hover { background: #ff2a5b; }
-.edit-grid {
-  position: absolute;
-  inset: 0;
-  z-index: 8000;
-  pointer-events: none;
-  background-image:
-    linear-gradient(0deg, rgba(255,255,255,.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px);
-  background-size: 10% 10%;
-}
-.edit-banner {
-  position: absolute;
-  left: 50%;
-  top: 14px;
-  transform: translateX(-50%);
-  z-index: 9200;
-  background: rgba(5,6,8,.85);
-  color: #29f3ff;
-  border: 1px solid rgba(41,243,255,.4);
-  border-radius: 99px;
-  padding: 8px 18px;
-  font: 700 13px/1 system-ui, sans-serif;
-  pointer-events: none;
-  display: none;
-}
-body.edit-mode .edit-banner { display: block; }
+/* Edit-Mode-Mechanik wurde aus der Bühne entfernt. Layout-Änderungen passieren
+   jetzt ausschließlich über die Slider/Number-Inputs in der Streamlit-Regie
+   (Tab "Layout"). Die Bühne ist reine Anzeige. */
 
 /* Status badge for debug/test mode */
 .status-badge {
@@ -557,9 +470,6 @@ body.edit-mode .edit-banner { display: block; }
     <div class="motion wave" data-effect="Wellen" data-hidden="1"></div>
     <div class="heat" id="heat" data-hidden="1"></div>
     <div id="layers"></div>
-    <div class="edit-grid" id="editGrid" style="display:none"></div>
-    <div id="editHandles"></div>
-    <div class="edit-banner" id="editBanner">EDIT-MODUS · Layer ziehen, an der Ecke skalieren, mit ✕ ausblenden</div>
   </div>
 </div>
 <div class="status-badge" id="statusBadge" style="display:none"></div>
@@ -570,9 +480,10 @@ body.edit-mode .edit-banner { display: block; }
   "use strict";
 
   // ---- URL params --------------------------------------------------------
+  // Edit-Modus existiert in der Bühne nicht mehr; Layout wird in der Regie
+  // über Slider gesteuert. Die Bühne ist reine Anzeige.
   const params = new URLSearchParams(location.search);
   const room = params.get("room") || "default";
-  const editMode = params.get("edit") === "1";
   const debugMode = params.get("debug") === "1";
   const testMode = params.get("test") === "1";
   const transparent = params.get("transparent") === "1" || params.get("bg") === "transparent";
@@ -591,7 +502,6 @@ body.edit-mode .edit-banner { display: block; }
   const gistMode = !!gistId;
 
   if (transparent) document.body.classList.add("transparent");
-  if (editMode) document.body.classList.add("edit-mode");
 
   if (testMode) {
     const b = document.getElementById("statusBadge");
@@ -604,15 +514,13 @@ body.edit-mode .edit-banner { display: block; }
   const stage = document.getElementById("stage");
   const bgEl = document.getElementById("bg");
   const layers = document.getElementById("layers");
-  const editHandles = document.getElementById("editHandles");
-  const editGrid = document.getElementById("editGrid");
   const heatEl = document.getElementById("heat");
   const statusBadge = document.getElementById("statusBadge");
   const debugPanel = document.getElementById("debugPanel");
 
   // Diagnose-Logging direkt nach URL-Parse, damit der User in DevTools sieht,
-  // ob ?edit=1 angekommen ist.
-  try { console.log("[ttl-stage] URL params:", { room, editMode, debugMode, testMode, transparent }); } catch (e) {}
+  // ob die Parameter angekommen sind.
+  try { console.log("[ttl-stage] URL params:", { room, debugMode, testMode, transparent }); } catch (e) {}
 
   // Globale Diagnose-Counter, vom Polling befüllt; debug-panel liest sie.
   const diag = {
@@ -630,7 +538,6 @@ body.edit-mode .edit-banner { display: block; }
     debugPanel.classList.add("show");
     const ageSec = diag.lastFetchAt ? Math.max(0, Math.round((Date.now() - diag.lastFetchAt) / 1000)) : -1;
     const layerIds = Array.from(layers.querySelectorAll("[data-id]")).map(el => el.dataset.id);
-    const handleIds = Array.from(editHandles.querySelectorAll("[data-handle]")).map(el => el.dataset.handle);
     const fetchOk = diag.lastFetchOk === true;
     if (diag.lastFetchOk === false) debugPanel.classList.add("error"); else debugPanel.classList.remove("error");
     const dotCls = fetchOk ? "ok" : (diag.lastFetchOk === null ? "ok" : "bad");
@@ -645,9 +552,8 @@ body.edit-mode .edit-banner { display: block; }
     lines.push('<div class="row">--accent: ' + escapeHtml(cssAccent) + '</div>');
     lines.push('<div class="row">font.topic: ' + escapeHtml((state && state.topic_font_family) || "?") + '</div>');
     lines.push('<hr>');
-    lines.push('<div class="row">edit: <b>' + (editMode ? "ja" : "nein") + '</b> · layers: ' + layerIds.length + ' · handles: ' + handleIds.length + '</div>');
+    lines.push('<div class="row">layers: ' + layerIds.length + '</div>');
     if (layerIds.length) lines.push('<div class="row" style="opacity:.7">[' + layerIds.join(", ") + ']</div>');
-    if (handleIds.length) lines.push('<div class="row" style="opacity:.7">handles: [' + handleIds.join(", ") + ']</div>');
     lines.push('<hr>');
     if (diag.lastFetchOk === null) {
       lines.push('<div class="row">fetch: <b>pending</b></div>');
@@ -660,8 +566,6 @@ body.edit-mode .edit-banner { display: block; }
     lines.push('<div class="row">render #' + diag.renderCount + '</div>');
     debugPanel.innerHTML = lines.join("");
   }
-
-  if (editMode) editGrid.style.display = "block";
 
   const FONT_STACKS = {
     "System Sans": "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
@@ -906,7 +810,7 @@ body.edit-mode .edit-banner { display: block; }
         text: state.text_color, muted: state.muted,
         accent: state.accent, accent2: state.accent2,
         topicFont: state.topic_font_family, kwFont: state.keyword_font_family,
-        editMode: editMode, hasTopicField: ("text" in state),
+        hasTopicField: ("text" in state),
       });
     } catch (e) {}
     r.style.setProperty("--topicFont", fontStack(state.topic_font_family || "Inter"));
@@ -1129,139 +1033,9 @@ body.edit-mode .edit-banner { display: block; }
       heatEl.dataset.hidden = "1";
     }
 
-    // Edit-mode handles — IMMER nach jedem Render aufräumen, damit neue
-    // Layer ihre Handles bekommen und entfernte Layer keine Handles
-    // hinterlassen (refreshEditHandles macht beides).
-    refreshEditHandles(state);
-
     // Debug-Panel (mit ?debug=1) — übernimmt die Rolle des alten Status-
     // Badge und zeigt zusätzlich Theme-Werte, Layer-Counts und Fetch-Status.
     paintDebugPanel(state);
-  }
-
-  // ---- Edit-mode handles ------------------------------------------------
-  const EDITABLES = [
-    { id: "topic", show: "show_topic", x: "topic_x", y: "topic_y", w: "topic_width", h: "topic_height", label: "Topic", minW: 18, minH: 8 },
-    { id: "highlight", show: "show_highlight", x: "highlight_x", y: "highlight_y", w: "highlight_width", h: "highlight_height", label: "Highlight", minW: 16, minH: 8 },
-    { id: "cloud", show: "show_cloud", x: "cloud_pos_x", y: "cloud_pos_y", w: "cloud_width", h: "cloud_height", label: "Cloud", minW: 35, minH: 35 },
-    { id: "countdown", show: "show_countdown", x: "countdown_x", y: "countdown_y", w: "countdown_width", h: "countdown_height", label: "Countdown", minW: 18, minH: 8 },
-    { id: "clock", show: "show_clock", x: "clock_x", y: "clock_y", w: "clock_width", h: "clock_height", label: "Uhr", minW: 12, minH: 6 },
-    { id: "video", show: "show_video", x: "video_x", y: "video_y", w: "video_width", h: "video_height", label: "Video", minW: 15, minH: 10 },
-    { id: "website", show: "show_website", x: "website_x", y: "website_y", w: "website_width", h: "website_height", label: "Website", minW: 20, minH: 15 },
-    { id: "pdf", show: "show_pdf", x: "pdf_x", y: "pdf_y", w: "pdf_width", h: "pdf_height", label: "PDF", minW: 20, minH: 20 },
-    { id: "ai", show: "show_ai", x: "ai_x", y: "ai_y", w: "ai_width", h: "ai_height", label: "KI-Karte", minW: 20, minH: 12 },
-  ];
-
-  function refreshEditHandles(state) {
-    // Wenn nicht im Edit-Modus: ALLES wegräumen (Garbage Collection für
-    // den Fall, dass der User Edit aus- aber nicht eingeschaltet hat).
-    if (!editMode) {
-      while (editHandles.firstChild) editHandles.removeChild(editHandles.firstChild);
-      return;
-    }
-    const wantedIds = new Set();
-    EDITABLES.forEach(spec => {
-      const visible = spec.id === "ai" ? !!(state.show_ai_card && state.ai_response)
-                    : spec.id === "highlight" ? !!(state.show_highlight && state.highlight_word)
-                    : !!state[spec.show];
-      if (!visible) return;
-      wantedIds.add(spec.id);
-      let h = editHandles.querySelector('[data-handle="' + spec.id + '"]');
-      if (!h) {
-        h = document.createElement("div");
-        h.className = "edit-handle";
-        h.dataset.handle = spec.id;
-        h.innerHTML = '<div class="label">' + spec.label + '</div><button class="hide-btn" title="Layer ausblenden">×</button><div class="resize"></div>';
-        editHandles.appendChild(h);
-        wireDrag(h, spec);
-      }
-      const x = state[spec.x] != null ? state[spec.x] : 50;
-      const y = state[spec.y] != null ? state[spec.y] : 50;
-      const w = state[spec.w] != null ? state[spec.w] : 30;
-      const ht = state[spec.h] != null ? state[spec.h] : 20;
-      h.style.left = pct(x);
-      h.style.top = pct(y);
-      h.style.width = pct(w);
-      h.style.height = pct(ht);
-    });
-    // Stale handles wegräumen
-    Array.from(editHandles.querySelectorAll("[data-handle]")).forEach(el => {
-      if (!wantedIds.has(el.dataset.handle)) el.remove();
-    });
-    try { console.log("[ttl-stage] handles:", Array.from(wantedIds)); } catch (e) {}
-  }
-
-  function wireDrag(handle, spec) {
-    const stageRect = () => stage.getBoundingClientRect();
-    let mode = null;
-    let startX = 0, startY = 0;
-    let startLeft = 0, startTop = 0, startW = 0, startH = 0;
-
-    const onDown = (ev) => {
-      const isResize = ev.target.classList && ev.target.classList.contains("resize");
-      const isHide = ev.target.classList && ev.target.classList.contains("hide-btn");
-      if (isHide) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        sendUpdate(spec.id, { hide: true });
-        return;
-      }
-      mode = isResize ? "resize" : "move";
-      ev.preventDefault();
-      const rect = stageRect();
-      startX = ev.clientX; startY = ev.clientY;
-      startLeft = parseFloat(handle.style.left) || 50;
-      startTop = parseFloat(handle.style.top) || 50;
-      startW = parseFloat(handle.style.width) || 30;
-      startH = parseFloat(handle.style.height) || 20;
-      handle.setPointerCapture && handle.setPointerCapture(ev.pointerId);
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp, { once: true });
-    };
-    const onMove = (ev) => {
-      if (!mode) return;
-      const rect = stageRect();
-      const dxPct = ((ev.clientX - startX) / rect.width) * 100;
-      const dyPct = ((ev.clientY - startY) / rect.height) * 100;
-      if (mode === "move") {
-        const nx = Math.max(2, Math.min(98, startLeft + dxPct));
-        const ny = Math.max(2, Math.min(98, startTop + dyPct));
-        handle.style.left = nx + "%";
-        handle.style.top = ny + "%";
-        const el = layers.querySelector('[data-id="' + spec.id + '"]');
-        if (el) { el.style.left = nx + "%"; el.style.top = ny + "%"; }
-      } else if (mode === "resize") {
-        const nw = Math.max(spec.minW, Math.min(100, startW + dxPct * 2));
-        const nh = Math.max(spec.minH, Math.min(100, startH + dyPct * 2));
-        handle.style.width = nw + "%";
-        handle.style.height = nh + "%";
-        const el = layers.querySelector('[data-id="' + spec.id + '"]');
-        if (el) { el.style.width = nw + "%"; el.style.height = nh + "%"; }
-      }
-    };
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      const x = parseFloat(handle.style.left) || 50;
-      const y = parseFloat(handle.style.top) || 50;
-      const w = parseFloat(handle.style.width) || 30;
-      const ht = parseFloat(handle.style.height) || 20;
-      sendUpdate(spec.id, { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(ht) });
-      mode = null;
-    };
-    handle.addEventListener("pointerdown", onDown);
-  }
-
-  function sendUpdate(id, payload) {
-    const msg = { type: "ttl-stage-edit", id: id, payload: payload, t: Date.now() };
-    try {
-      // Stash in localStorage so a fresh Streamlit rerun can pick it up
-      const queue = JSON.parse(localStorage.getItem("ttl_stage_edit_queue") || "[]");
-      queue.push(msg);
-      // Keep only last 30 edits to bound size
-      while (queue.length > 30) queue.shift();
-      localStorage.setItem("ttl_stage_edit_queue", JSON.stringify(queue));
-    } catch (e) {}
-    try { if (window.parent && window.parent !== window) window.parent.postMessage(msg, "*"); } catch (e) {}
   }
 
   // ---- Polling loop -----------------------------------------------------
@@ -1332,6 +1106,9 @@ body.edit-mode .edit-banner { display: block; }
     }
     pollTimer = setTimeout(poll, pollInterval);
   }
+
+  // Polling startet sofort. Im lokalen Mode liest die Bühne overlay_state_*.json,
+  // im Cloud-Mode liest sie den GitHub-Gist-Raw via ?gist=...
   poll();
 
   // Tick clock every second by re-rendering last state if available

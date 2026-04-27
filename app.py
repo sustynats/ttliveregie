@@ -1021,90 +1021,6 @@ def apply_visual_defaults_v3() -> None:
     st.session_state.defaults_version = DEFAULTS_VERSION
 
 
-def clamp_number(value: Any, default: float, minimum: float, maximum: float) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        number = default
-    return max(minimum, min(maximum, number))
-
-
-def sanitize_visual_state_dict(state: dict[str, Any]) -> dict[str, Any]:
-    state = dict(state or {})
-    state["layout"] = LEGACY_LAYOUT_MAP.get(state.get("layout", "Neon Pop"), state.get("layout", "Neon Pop"))
-    if state["layout"] not in THEMES:
-        state["layout"] = "Neon Pop"
-    theme = THEMES[state["layout"]]
-    state["cloud_style"] = state.get("cloud_style") or theme.get("cloud_style", "Color Burst")
-    state["stage_edit_mode"] = bool(state.get("stage_edit_mode", False))
-    state["topic_x"] = int(clamp_number(state.get("topic_x"), 36, 15, 85))
-    state["topic_y"] = int(clamp_number(state.get("topic_y"), 18, 8, 55))
-    state["topic_width"] = int(clamp_number(state.get("topic_width"), 68, 35, 88))
-    state["topic_height"] = int(clamp_number(state.get("topic_height"), 24, 12, 42))
-    state["topic_text_size"] = int(clamp_number(state.get("topic_text_size"), 100, 65, 145))
-    state["keyword_size"] = int(clamp_number(state.get("keyword_size"), 55, 35, 125))
-    state["keyword_density"] = int(clamp_number(state.get("keyword_density"), 45, 10, 100))
-    state["cloud_pos_x"] = int(clamp_number(state.get("cloud_pos_x"), 50, 8, 92))
-    state["cloud_pos_y"] = int(clamp_number(state.get("cloud_pos_y"), 50, 10, 88))
-    state["cloud_width"] = int(clamp_number(state.get("cloud_width"), 58, 35, 90))
-    state["cloud_height"] = int(clamp_number(state.get("cloud_height"), 58, 28, 86))
-    state["cloud_tilt"] = int(clamp_number(state.get("cloud_tilt"), 0, -10, 10))
-    state["highlight_width"] = int(clamp_number(state.get("highlight_width"), 62, 20, 86))
-    state["highlight_height"] = int(clamp_number(state.get("highlight_height"), 18, 8, 35))
-    state["highlight_text_size"] = int(clamp_number(state.get("highlight_text_size"), 100, 60, 160))
-    state["countdown_width"] = int(clamp_number(state.get("countdown_width"), 32, 18, 70))
-    state["countdown_height"] = int(clamp_number(state.get("countdown_height"), 12, 8, 28))
-    state["countdown_text_size"] = int(clamp_number(state.get("countdown_text_size"), 100, 70, 145))
-    state["clock_width"] = int(clamp_number(state.get("clock_width"), 24, 14, 48))
-    state["clock_height"] = int(clamp_number(state.get("clock_height"), 9, 6, 22))
-    state["clock_text_size"] = int(clamp_number(state.get("clock_text_size"), 100, 70, 145))
-    state["overlay_opacity"] = int(clamp_number(state.get("overlay_opacity"), 100, 20, 100))
-    state["bg_dim"] = int(clamp_number(state.get("bg_dim"), 25, 0, 50))
-    state["bg_brightness"] = int(clamp_number(state.get("bg_brightness"), 115, 80, 180))
-    state["bg_opacity"] = int(clamp_number(state.get("bg_opacity"), 100, 0, 100))
-    return state
-
-
-VISUAL_SANITIZED_KEYS = {
-    "layout",
-    "cloud_style",
-    "stage_edit_mode",
-    "topic_x",
-    "topic_y",
-    "topic_width",
-    "topic_height",
-    "topic_text_size",
-    "keyword_size",
-    "keyword_density",
-    "cloud_pos_x",
-    "cloud_pos_y",
-    "cloud_width",
-    "cloud_height",
-    "cloud_tilt",
-    "highlight_width",
-    "highlight_height",
-    "highlight_text_size",
-    "countdown_width",
-    "countdown_height",
-    "countdown_text_size",
-    "clock_width",
-    "clock_height",
-    "clock_text_size",
-    "overlay_opacity",
-    "bg_dim",
-    "bg_brightness",
-    "bg_opacity",
-}
-
-
-def sanitize_session_visual_state() -> None:
-    sanitized = sanitize_visual_state_dict({key: st.session_state.get(key) for key in snapshot_scene().keys()})
-    for key in VISUAL_SANITIZED_KEYS:
-        value = sanitized.get(key)
-        if key in st.session_state:
-            st.session_state[key] = value
-
-
 def normalize_motion_effects(effects: Any) -> list[str]:
     normalized: list[str] = []
     for effect in effects or []:
@@ -1208,7 +1124,6 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.ai_response = ""
         st.session_state.show_ai_card = False
     st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
-    sanitize_session_visual_state()
     if not payload.get("user_adjusted_cloud_position"):
         st.session_state.cloud_pos_x = 50
         st.session_state.cloud_pos_y = 50
@@ -2280,7 +2195,6 @@ def css_for_overlay_mode() -> str:
 
 
 def render_overlay_html(state: dict[str, Any]) -> str:
-    state = sanitize_visual_state_dict(state)
     layout = state.get("layout", "Editorial Dark")
     layout = LEGACY_LAYOUT_MAP.get(layout, layout)
     theme = THEMES.get(layout, THEMES["Editorial Dark"])
@@ -2551,7 +2465,6 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700;800;900&family=Merriweather:wght@400;700;900&family=Montserrat:wght@400;600;700;800;900&family=Playfair+Display:wght@600;700;800;900&family=Poppins:wght@400;600;700;800;900&display=swap');
     :root {{
       --bg:{theme["bg"]}; --panel:{theme["panel"]}; --text:{theme["text"]}; --muted:{theme["muted"]};
       --accent:{theme["accent"]}; --accent2:{theme["accent2"]}; --glow:{theme["glow"]};
@@ -2639,8 +2552,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .heatmap.neutral {{ background:radial-gradient(circle at 38% 38%, rgba(255,255,255,.20), transparent 34%), radial-gradient(circle at 74% 58%, rgba(120,160,255,.18), transparent 32%); }}
     .heatmap span {{ position:absolute; left:7%; bottom:14%; font-size:12px; font-weight:900; text-transform:uppercase; color:rgba(255,255,255,.72); }}
     .topic {{
-      position:absolute; left:var(--tx); top:var(--ty); width:var(--tw); height:var(--th); transform:translate(-50%,-50%);
-      overflow:hidden;
+      position:absolute; left:var(--tx); top:var(--ty); width:var(--tw); min-height:var(--th); transform:translate(-50%,-50%);
       font-weight:850; line-height:.98;
       font-family:var(--topicFont); font-weight:var(--topicWeight);
       font-size:calc(clamp(36px, 7.4vw, 74px) * var(--topicSize)); letter-spacing:var(--topicSpacing); text-transform:var(--topicTransform);
@@ -2648,8 +2560,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .topic::after {{ content:""; display:block; width:72px; height:3px; margin-top:18px; background:var(--accent); border-radius:3px; box-shadow:0 0 24px var(--glow); }}
     .highlight {{
-      position:absolute; left:var(--hx); top:var(--hy); width:var(--hw); height:var(--hh); transform:translate(-50%,-50%);
-      overflow:hidden;
+      position:absolute; left:var(--hx); top:var(--hy); width:var(--hw); min-height:var(--hh); transform:translate(-50%,-50%);
       padding:.18em .32em .26em;
       font-family:var(--highlightFont); font-size:calc(clamp(42px, 9vw, 96px) * var(--highlightSize)); font-weight:var(--highlightWeight); letter-spacing:var(--highlightSpacing); line-height:.9; color:var(--text);
       background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
@@ -2683,8 +2594,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     .map-lines {{ position:absolute; inset:0; opacity:.42; }}
     .map-lines line {{ stroke:var(--accent); stroke-width:.22; vector-effect:non-scaling-stroke; }}
     .countdown {{
-      position:absolute; left:var(--cx); top:var(--cy); width:var(--cw); height:var(--ch); transform:translate(-50%,-50%);
-      overflow:hidden;
+      position:absolute; left:var(--cx); top:var(--cy); width:var(--cw); min-height:var(--ch); transform:translate(-50%,-50%);
       min-width:160px; display:flex; align-items:center; gap:14px;
       padding:14px 16px; border:1px solid color-mix(in srgb, var(--accent) 32%, transparent);
       background:var(--panel); backdrop-filter:blur(14px); border-radius:8px;
@@ -2698,8 +2608,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     }}
     .ring::after {{ content:""; position:absolute; inset:7px; border-radius:50%; background:var(--bg); }}
     .live-clock {{
-      position:absolute; left:var(--lx); top:var(--ly); width:var(--lw); height:var(--lh); transform:translate(-50%,-50%);
-      overflow:hidden;
+      position:absolute; left:var(--lx); top:var(--ly); width:var(--lw); min-height:var(--lh); transform:translate(-50%,-50%);
       padding:9px 12px; border-radius:999px;
       display:flex; flex-direction:column; gap:1px; font-family:var(--countdownFont); font-weight:800; font-size:calc(14px * var(--clockSize)); color:var(--text); background:var(--panel); border:1px solid rgba(255,255,255,.13);
     }}
@@ -2790,7 +2699,7 @@ def render_overlay_html(state: dict[str, Any]) -> str:
     </head>
     <body>
       <div class="stage-wrap">
-        <main class="stage {frame_cls} {anim_cls} {'editing' if state.get('stage_edit_mode') else ''} layout-{theme["key"]}">
+        <main class="stage {frame_cls} {anim_cls} layout-{theme["key"]}">
           <div class="bg-image"></div>
           <div class="readability"></div>
           <div class="grain"></div>
@@ -2955,7 +2864,7 @@ def current_overlay_state() -> dict[str, Any]:
     )
     if st.session_state.auto_highlight and not st.session_state.highlight_word and st.session_state.keywords:
         state["highlight_word"] = st.session_state.keywords[0]["word"]
-    return sanitize_visual_state_dict(state)
+    return state
 
 
 def persist_overlay_state() -> None:
@@ -2988,15 +2897,15 @@ def load_overlay_state() -> dict[str, Any]:
                         if image.get("id") == data.get("active_image_id"):
                             data["active_image_data"] = image.get("data_url", "")
                             break
-                return sanitize_visual_state_dict(data)
+                return data
             except Exception:
                 pass
     if RUNTIME_STATE_FILE.exists():
         try:
-            return sanitize_visual_state_dict(json.loads(RUNTIME_STATE_FILE.read_text(encoding="utf-8")))
+            return json.loads(RUNTIME_STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return sanitize_visual_state_dict(current_overlay_state())
+    return current_overlay_state()
 
 
 def render_stage(state: dict[str, Any], height: int = 860) -> None:

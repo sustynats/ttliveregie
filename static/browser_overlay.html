@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TT Live Regie Overlay</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700;800;900&family=Merriweather:wght@400;700;900&family=Montserrat:wght@400;600;700;800;900&family=Playfair+Display:wght@600;700;800;900&family=Poppins:wght@400;600;700;800;900&display=swap');
     :root {
       --bg: #050608;
       --text: #fff7ea;
@@ -16,6 +17,11 @@
       --cloud-y: 50%;
       --cloud-w: 58%;
       --cloud-h: 58%;
+      --topic-font: Poppins, Inter, Arial, Helvetica, system-ui, sans-serif;
+      --keyword-font: Inter, Arial, Helvetica, system-ui, sans-serif;
+      --topic-weight: 900;
+      --keyword-weight: 780;
+      --topic-transform: none;
       --dim: .22;
     }
     * { box-sizing: border-box; }
@@ -74,13 +80,18 @@
     body.transparent .veil { background: transparent; }
     .topic {
       position: absolute;
-      left: 7%;
-      top: 7%;
-      width: 70%;
+      left: var(--topic-x, 36%);
+      top: var(--topic-y, 18%);
+      width: var(--topic-w, 68%);
+      min-height: var(--topic-h, 24%);
+      transform: translate(-50%, -50%);
+      overflow: hidden;
+      font-family: var(--topic-font);
       font-size: clamp(38px, 7.8vw, 82px);
       line-height: .96;
-      font-weight: 900;
+      font-weight: var(--topic-weight);
       letter-spacing: 0;
+      text-transform: var(--topic-transform);
       text-shadow: 0 10px 32px rgba(0,0,0,.50);
       z-index: 4;
     }
@@ -96,8 +107,11 @@
     }
     .clock {
       position: absolute;
-      top: 7%;
-      right: 8%;
+      left: var(--clock-x, 82%);
+      top: var(--clock-y, 12%);
+      width: var(--clock-w, 24%);
+      min-height: var(--clock-h, 9%);
+      transform: translate(-50%, -50%);
       z-index: 6;
       display: flex;
       flex-direction: column;
@@ -133,9 +147,10 @@
       background: rgba(10, 12, 20, .64);
       border: 1px solid rgba(255,255,255,.16);
       color: var(--text);
+      font-family: var(--keyword-font);
       font-size: clamp(13px, 2.2vw, 24px);
       line-height: 1;
-      font-weight: var(--w);
+      font-weight: var(--w, var(--keyword-weight));
       text-shadow: 0 4px 18px rgba(0,0,0,.36);
       box-shadow: 0 10px 26px rgba(0,0,0,.18);
       animation: floaty var(--d) ease-in-out infinite;
@@ -526,6 +541,47 @@
           return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char];
         });
       }
+      function fontStack(name) {
+        var fonts = {
+          "System Sans": "Inter, Arial, Helvetica, system-ui, sans-serif",
+          "Inter": "Inter, Arial, Helvetica, system-ui, sans-serif",
+          "Arial": "Arial, Helvetica, system-ui, sans-serif",
+          "Helvetica": "Helvetica, Arial, system-ui, sans-serif",
+          "Georgia": "Georgia, 'Times New Roman', serif",
+          "Times New Roman": "'Times New Roman', Georgia, serif",
+          "Playfair Display": "'Playfair Display', Georgia, serif",
+          "Merriweather": "Merriweather, Georgia, serif",
+          "Montserrat": "Montserrat, Inter, Arial, sans-serif",
+          "Poppins": "Poppins, Inter, Arial, sans-serif",
+          "Bebas Neue": "'Bebas Neue', Impact, sans-serif"
+        };
+        return fonts[name] || fonts.Inter;
+      }
+      function applyTheme(state) {
+        var themes = {
+          "Editorial Dark": ["#151413", "#f4efe5", "#c7bba8", "#d6b15e", "#8f7747", "rgba(25,24,22,.78)", "Playfair Display"],
+          "Neon Pop": ["#050614", "#f4f7ff", "#b8c1ff", "#ff3df2", "#2dfcff", "rgba(9,10,26,.76)", "Poppins"],
+          "Candy Gradient": ["#ff8cc6", "#26133a", "#6e3f75", "#ff6b35", "#00d1c7", "rgba(255,255,255,.30)", "Poppins"],
+          "Bauhaus Clean": ["#f4efe2", "#111111", "#4e4b45", "#e53935", "#1d4ed8", "rgba(255,255,255,.80)", "Montserrat"],
+          "Soft Power": ["#eaded5", "#2f2928", "#776a67", "#b04e6f", "#383130", "rgba(255,247,241,.76)", "Playfair Display"],
+          "System Map": ["#101415", "#eaf1ed", "#9fb0a8", "#7bd7a8", "#7aa4ff", "rgba(17,23,24,.72)", "Inter"],
+          "Newspaper / Print": ["#f1eadc", "#111111", "#57514a", "#c8292c", "#222222", "rgba(255,255,255,.72)", "Merriweather"],
+          "Festival / Color Splash": ["#121019", "#fff8f0", "#ffdfe8", "#ff2f8f", "#35e6ff", "rgba(20,12,28,.58)", "Poppins"]
+        };
+        var theme = themes[state.layout] || themes["Neon Pop"];
+        var root = document.documentElement;
+        root.style.setProperty("--bg", theme[0]);
+        root.style.setProperty("--text", theme[1]);
+        root.style.setProperty("--muted", theme[2]);
+        root.style.setProperty("--accent", theme[3]);
+        root.style.setProperty("--accent2", theme[4]);
+        root.style.setProperty("--panel", theme[5]);
+        root.style.setProperty("--topic-font", fontStack(state.topic_font_family || theme[6]));
+        root.style.setProperty("--keyword-font", fontStack(state.keyword_font_family || "Inter"));
+        root.style.setProperty("--topic-weight", String(state.topic_font_weight || 900));
+        root.style.setProperty("--keyword-weight", String(state.keyword_font_weight || 780));
+        root.style.setProperty("--topic-transform", state.topic_text_transform === "uppercase" ? "uppercase" : "none");
+      }
       function updateWebsite(state, hidden) {
         var layer = document.getElementById("webLayer");
         var showWebsite = !hidden && !!state.show_website && !!state.website_url;
@@ -736,6 +792,7 @@
         var countdown = document.getElementById("countdown");
         var hidden = !!state.clear_overlay;
         var showCloud = !!state.show_cloud && !hidden && !state.minimal_mode;
+        applyTheme(state);
         var videoVisible = updateVideo(state, hidden);
         updateWebsite(state, hidden);
         updatePdf(state, hidden);
@@ -744,6 +801,14 @@
         root.style.setProperty("--cloud-y", clamp(state.cloud_pos_y || 50, 0, 100) + "%");
         root.style.setProperty("--cloud-w", clamp(state.cloud_width || 58, 35, 95) + "%");
         root.style.setProperty("--cloud-h", clamp(state.cloud_height || 58, 35, 95) + "%");
+        root.style.setProperty("--topic-x", clamp(state.topic_x || 36, 0, 100) + "%");
+        root.style.setProperty("--topic-y", clamp(state.topic_y || 18, 0, 100) + "%");
+        root.style.setProperty("--topic-w", clamp(state.topic_width || 68, 20, 95) + "%");
+        root.style.setProperty("--topic-h", clamp(state.topic_height || 24, 8, 70) + "%");
+        root.style.setProperty("--clock-x", clamp(state.clock_x || 82, 0, 100) + "%");
+        root.style.setProperty("--clock-y", clamp(state.clock_y || 12, 0, 100) + "%");
+        root.style.setProperty("--clock-w", clamp(state.clock_width || 24, 12, 60) + "%");
+        root.style.setProperty("--clock-h", clamp(state.clock_height || 9, 6, 30) + "%");
         root.style.setProperty("--dim", clamp((state.bg_dim || 22) / 100, 0, .55));
 
         stage.className = "stage" + (state.show_overlay_frame !== false ? " frame" : "");
@@ -752,7 +817,7 @@
           bg.style.backgroundSize = state.bg_fit || "cover";
           bg.style.backgroundPosition = (state.bg_pos_x || 50) + "% " + (state.bg_pos_y || 50) + "%";
           bg.style.opacity = clamp((state.bg_opacity || 100) / 100, 0, 1);
-          bg.style.filter = "blur(" + clamp(state.bg_blur || 0, 0, 40) + "px) brightness(" + clamp(state.bg_brightness || 105, 20, 180) + "%)";
+          bg.style.filter = "blur(" + clamp(state.bg_blur || 0, 0, 40) + "px) brightness(" + clamp(state.bg_brightness || 115, 80, 180) + "%)";
           bg.style.transform = "scale(" + clamp((state.bg_zoom || 100) / 100, .5, 2) + ")";
         } else {
           bg.style.backgroundImage = "";
@@ -855,6 +920,21 @@
         getJson(url, function (err, state) {
           if (!err) {
             render(state);
+            return;
+          }
+          if (room !== "default") {
+            getJson("overlay_state_default.json?t=" + Date.now(), function (fallbackErr, fallbackStateFromFile) {
+              if (!fallbackErr) {
+                render(fallbackStateFromFile);
+                if (debug) setDebug("Overlay geladen\nRoom-ID: " + room + "\nState-Datei fehlt, nutze default\nletzter Refresh: " + new Date().toLocaleTimeString());
+                return;
+              }
+              if (lastState) {
+                if (debug) setDebug("Overlay geladen\nRoom-ID: " + room + "\nletzter Refresh: " + new Date().toLocaleTimeString() + "\nPolling-Fehler: " + err.message);
+                return;
+              }
+              render(fallbackState());
+            });
             return;
           }
           if (lastState) {

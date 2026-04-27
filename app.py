@@ -1124,6 +1124,8 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.ai_response = ""
         st.session_state.show_ai_card = False
     st.session_state.motion_effects = normalize_motion_effects(st.session_state.get("motion_effects", []))
+    if not any(st.session_state.get(key) for key in ("show_topic", "show_cloud", "show_highlight", "show_countdown", "show_clock", "show_website", "show_video", "show_pdf", "show_ai_card")):
+        reset_stage_to_safe_defaults()
     if not payload.get("user_adjusted_cloud_position"):
         st.session_state.cloud_pos_x = 50
         st.session_state.cloud_pos_y = 50
@@ -1132,6 +1134,47 @@ def apply_persistent_payload(payload: dict[str, Any]) -> None:
         st.session_state.bg_brightness = max(115, st.session_state.get("bg_brightness", 115))
     st.session_state.topic_draft = st.session_state.topic
     st.session_state.highlight_draft = st.session_state.highlight_word
+
+
+def reset_stage_to_safe_defaults() -> None:
+    st.session_state.layout = "Neon Pop"
+    st.session_state.cloud_style = "Color Burst"
+    st.session_state.cloud_style_locked = False
+    st.session_state.show_topic = True
+    st.session_state.show_cloud = True
+    st.session_state.show_highlight = False
+    st.session_state.show_countdown = False
+    st.session_state.show_clock = True
+    st.session_state.show_live_since = True
+    st.session_state.show_background = True
+    st.session_state.show_overlay_frame = True
+    st.session_state.show_animations = True
+    st.session_state.clear_overlay = False
+    st.session_state.minimal_mode = False
+    st.session_state.focus_mode = False
+    st.session_state.stage_edit_mode = False
+    st.session_state.topic_font_family = "Poppins"
+    st.session_state.keyword_font_family = "Inter"
+    st.session_state.topic_font_weight = 850
+    st.session_state.keyword_font_weight = 760
+    st.session_state.topic_letter_spacing = 0
+    st.session_state.topic_text_transform = "normal"
+    st.session_state.topic_text_size = 90
+    st.session_state.keyword_size = 55
+    st.session_state.keyword_density = 45
+    st.session_state.cloud_pos_x = 50
+    st.session_state.cloud_pos_y = 50
+    st.session_state.cloud_width = 58
+    st.session_state.cloud_height = 58
+    st.session_state.topic_x = 36
+    st.session_state.topic_y = 18
+    st.session_state.topic_width = 68
+    st.session_state.topic_height = 24
+    st.session_state.bg_dim = 18
+    st.session_state.bg_blur = 0
+    st.session_state.bg_brightness = 125
+    st.session_state.bg_opacity = 100
+    st.session_state.overlay_opacity = 100
 
 
 def load_persisted_state_once() -> None:
@@ -3201,6 +3244,7 @@ def render_quick_actions() -> None:
     actions = [
         ("Freeze", "freeze"),
         ("Reset", "reset"),
+        ("Bühne reparieren", "repair_stage"),
         ("Auto-Highlight", "auto_highlight_action"),
         ("Aufhellen", "brighten"),
         ("Focus", "focus"),
@@ -3225,6 +3269,8 @@ def apply_quick_action(action: str) -> None:
         st.session_state.last_keywords_snapshot = []
         st.session_state.filtered_top = []
         st.session_state.filtered_total = 0
+    elif action == "repair_stage":
+        reset_stage_to_safe_defaults()
     elif action == "auto_highlight_action":
         st.session_state.auto_highlight = True
         st.session_state.highlight_word = ""
@@ -3304,7 +3350,6 @@ def sync_background_visibility() -> None:
 
 def set_background_visible(value: bool) -> None:
     st.session_state.show_background = bool(value)
-    st.session_state.background_visible_control = bool(value)
 
 
 def activate_image(image_id: str) -> None:
@@ -3356,12 +3401,8 @@ def render_media_panel() -> None:
         placeholder="https://example.com",
     )
     st.caption("Normale Websites blockieren haeufig iframe-Einbettung. Nutze Website-Proxy fuer Artikel-/News-Seiten; Interaktiver Browser funktioniert nur mit embed-freundlichen Seiten.")
-    st.toggle("Website anzeigen", key="show_website")
     if st.session_state.website_url:
         st.session_state.website_url = readable_url(st.session_state.website_url)
-    st.selectbox("Website Darstellung", ["Auto", "Website-Proxy", "Website-Vorschau", "Interaktiver Browser", "Link-Karte"], key="website_mode")
-    if st.session_state.website_url and is_known_iframe_blocked(st.session_state.website_url):
-        st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Website-Vorschau, Link-Karte oder eine offizielle Embed-/Video-URL.")
     c1, c2 = st.columns(2)
     if c1.button("Website-Proxy laden", key="website_proxy_load", use_container_width=True):
         ok, result = fetch_website_proxy_html(st.session_state.website_url)
@@ -3386,6 +3427,10 @@ def render_media_panel() -> None:
         else:
             st.session_state.website_preview_error = text
             st.error(text)
+    st.toggle("Website anzeigen", key="show_website")
+    st.selectbox("Website Darstellung", ["Auto", "Website-Proxy", "Website-Vorschau", "Interaktiver Browser", "Link-Karte"], key="website_mode")
+    if st.session_state.website_url and is_known_iframe_blocked(st.session_state.website_url):
+        st.warning("Diese Domain blockiert sehr wahrscheinlich iframe-Einbettung. Nutze Website-Vorschau, Link-Karte oder eine offizielle Embed-/Video-URL.")
     c3, c4 = st.columns(2)
     if c3.button("Proxy löschen", key="website_proxy_clear", use_container_width=True):
         st.session_state.website_proxy_html = ""
